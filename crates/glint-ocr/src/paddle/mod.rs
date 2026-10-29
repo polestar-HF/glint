@@ -210,8 +210,9 @@ impl PaddleOcr {
         tm.postprocess = t.elapsed();
         tm.total = t0.elapsed();
         log::debug!(
-            "ocr {w}x{h}: {} boxes, {} lines; prepare {:?}, det {:?}, rec {:?}, post {:?}",
+            "ocr {w}x{h}: {} boxes (mean score {:.2}), {} lines; prepare {:?}, det {:?}, rec {:?}, post {:?}",
             tm.boxes,
+            boxes.iter().map(|b| b.score).sum::<f32>() / boxes.len() as f32,
             p.lines.len(),
             tm.prepare,
             tm.detect,

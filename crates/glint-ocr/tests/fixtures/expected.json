@@ -40,9 +40,8 @@
       "The quick brown fox jumps over the lazy dog.",
       "Pack my box with five dozen liquor jugs."
     ],
-    "expected": "The quick brown fox jumps over the lazy dog.\nPack my box with five dozen liquor jugs.",
-    "lang": "en",
-    "keep_lines": true
+    "expected": "The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
+    "lang": "en"
   },
   "dark_ui": {
     "lines": [
@@ -53,8 +52,7 @@
       "About Glint"
     ],
     "expected": "General\nAppearance\nKeyboard Shortcuts\nTranslation Engines\nAbout Glint",
-    "lang": "en",
-    "keep_lines": true
+    "lang": "en"
   },
   "two_column": {
     "lines": [

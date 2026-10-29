@@ -94,15 +94,14 @@ tiny = [
 render("tiny_11px", tiny, DEJAVU, 11, (320, 46), (255, 255, 255), (0, 0, 0), 4, margin=(8, 7))
 cases["tiny_11px"] = dict(
     lines=tiny,
-    expected="The quick brown fox jumps over the lazy dog.\nPack my box with five dozen liquor jugs.",
+    expected="The quick brown fox jumps over the lazy dog. Pack my box with five dozen liquor jugs.",
     lang="en",
-    keep_lines=True,
 )
 
 # 6. White-on-dark UI list (should stay in line mode).
 ui = ["General", "Appearance", "Keyboard Shortcuts", "Translation Engines", "About Glint"]
 render("dark_ui", ui, INTER, 14, (260, 150), (30, 30, 30), (240, 240, 240), 12, margin=(16, 14))
-cases["dark_ui"] = dict(lines=ui, expected="\n".join(ui), lang="en", keep_lines=True)
+cases["dark_ui"] = dict(lines=ui, expected="\n".join(ui), lang="en")
 
 # 7. Two columns of text (left column must be read first).
 left = [
