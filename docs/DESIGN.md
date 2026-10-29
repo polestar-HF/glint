@@ -252,6 +252,16 @@ No web fonts are loaded. The families are:
 
 Events whose `sessionId` is older than the current one are dropped. A `retranslate` whose `session:start` arrives before the command resolves keeps the edited text.
 
+**Timings line (v0.2, `ui.showTimings`):**
+- One extra meta row directly under the source header: 12/16 `--font-small`, `text-3`, tabular figures. Example: `截图 21 ms · 选区 34 ms · 识别 142 ms（检测 48 / 识别 81）· 首字 585 ms`.
+- **Sources.** `session:start.timings` (capture, overlay), `ocr:result.timings` (load, det, rec) with `elapsedMs`, and the first result's `tr:done.firstTokenMs`; snapshot equivalents on catch-up. Absent parts are left out; a cold start adds `加载 1046` inside the parentheses.
+- Inner stage values are bare integers (ms implied); headline values use `fmtMs` (`142 ms`, `1.2 s`).
+- **Wrapping.** Each part is unbreakable and carries its trailing `·` (joined by a no-break space), so a wrap never starts a line with a dot.
+- **No duplicates.** With the line on, the source header meta drops its total (`PaddleOCR` alone), and so does the OCR-mode footer.
+- **Per engine.** Each result header shows `首字 585 ms · 1.1 s` in place of the bare elapsed time.
+- Capture and OCR timings survive a `retranslate`, since they describe the same capture.
+- In OCR mode the line sits 8 px under the text, above the footer.
+
 ### Settings (`settings.html`)
 
 - **Navigation.**
@@ -305,7 +315,36 @@ Events whose `sessionId` is older than the current one are dropped. A `retransla
     - every kind: display name
   - **Secret fields** have a reveal toggle (eye icon). Hints are 12 px `text-3`.
 - **Text field:** 32 px, radius 4, control fill and stroke with a darker bottom edge. On focus it turns input-white with a 2 px accent bottom edge (Fluent TextBox), and the focus ring is suppressed.
-- **About:** the wordmark "Glint" (28/600 Display) takes the place of the page title, followed by the tagline and version. Below are links (rows with an external-link icon, opened through `tauri-plugin-opener`), open-source licenses and the config file path (selectable, monospace).
+- **About:** the wordmark "Glint" (28/600 Display) takes the place of the page title, followed by the tagline and version. Below are links (rows with an external-link icon, opened through `tauri-plugin-opener`), the performance card, open-source licenses and the config file path (selectable, monospace).
+
+#### v0.2: multiple LLM services
+
+- **"添加大模型服务"** is the last row of the engine card, not a separate button below it. The plus icon sits in the grip column and the label on the engine-name edge, so it reads as "a new row goes here". It is accent-colored text with a subtle hover fill.
+- **Preset picker** (flyout, 320 px, radius 8, flyout shadow):
+  - Two groups with 12 px `text-3` captions ("OpenAI 兼容", "Anthropic"), separated by a hairline that runs edge to edge.
+  - Items are 32 px: name on the left (14 px `text-1`), endpoint host right-aligned (12 px `text-3`). Local services show "本地，无需 Key"; "自定义" shows "填写接口地址".
+  - It opens downward when there is room (≥ 320 px), otherwise upward, and is clamped to the window. ↑/↓/Home/End move, Enter picks, Esc closes and returns focus. A scroll that lands within 200 ms of opening (the click scrolling the button into view) is ignored.
+- **After picking:** a new entry (`<kind>-<6 × [a-z0-9]>`, `enabled: true`, name and endpoint from the preset) is appended. Its configuration panel opens, the row scrolls into view, and focus goes to the first thing the user must type: the base URL for "自定义", otherwise the first empty required field (key, then model).
+- **User-added rows:**
+  - Name, then a quiet protocol tag (12 px `text-3`: "OpenAI 兼容" / "Anthropic"), then "首选" if primary.
+  - Secondary line: `host · model` (the default host when the base URL is empty). A missing-field hint follows on the same line in the caution color: "需要 API Key", "需要填写模型名称", or "需要 API Key 和模型名称".
+  - The display name can't be emptied: user-added entries always keep a name.
+  - Delete lives at the end of the configuration panel: a subtle critical-colored "删除此服务" with a trash icon. Clicking it turns the row into "删除「通义千问」？ [删除] [取消]" with focus on 取消; Esc cancels. No modal.
+- **Validation** mirrors the backend:
+  - openai: a key is required on the official endpoint (no base URL, or `api.openai.com`) and on hosted presets that need one. A model is required whenever the base URL is custom.
+  - anthropic: a key is required unless a base URL is set.
+  - A required field that is still empty gets a caution-colored bottom edge; "可选" appears only on fields that really are optional for that endpoint.
+- Built-in rows are unchanged and can't be deleted. Drag and ↑/↓ reorder cover all rows alike.
+
+#### v0.2: 性能数据 (About)
+
+- One group titled "性能数据", with "最近 128 次 · 自 10月21日 起" as the right-aligned hint. Rows are separated by hairlines:
+  1. The "在弹窗中显示耗时" toggle (`ui.showTimings`).
+  2. **Timings table.** The first header cell doubles as the caption ("耗时（毫秒）", 12/600 `text-2`); the other headers are 12 px `text-3`, right-aligned. Rows are 28 px at 13 px; numbers are tabular with thousands separators. 中位数 is `text-1`, P90 `text-2`, 最大 `text-3`. Metrics follow pipeline order: hotkey → capture → overlay → OCR warm/cold → load → det → rec. No row rules.
+  3. **Translation table.** Columns 次数, 失败, 中位数, P90, 首字. A non-zero 失败 is in the critical color; a missing first-token value is "—".
+  4. **System.** Key/value pairs on the 96 px label column used by the engine fields; the values are selectable.
+  5. **Actions** on the right: subtle "清空" (inline confirm "清空全部统计？ [清空] [取消]") and a standard "复制诊断信息" button with a copy icon. Copying shows the same inverse toast as the popup.
+- **Empty state:** a single 13 px `text-2` line, "使用几次截图翻译后，这里会显示统计。" The system block and the copy action stay, since diagnostics are still useful.
 
 ## 10. Writing
 
@@ -365,5 +404,6 @@ This refines the initial spec in ARCHITECTURE.md. The current implementation (`g
   - `?mica` simulates Mica.
   - `?ui=en-US` switches to English; `?font=16` changes the content size; `?theme=dark` forces a theme.
   - `settings.html?section=translate` opens a given settings section.
+  - v0.2: `popup.html?timings=1` turns the timings line on, and `&cold=1` adds a model load. `settings.html?engines=multi` adds two user-added services (one missing its model); `?perf=empty` starts with no statistics.
 - **Screenshots.** `npm run build && node scripts/screenshots.cjs` writes `docs/screenshots/*.png`. Linux has no Segoe UI or YaHei, so set `FONTS_DIR` to a `node_modules` folder containing `@fontsource-variable/{open-sans,noto-sans-sc,noto-sans-jp}`. These stand in for Segoe UI Variable and YaHei UI / Yu Gothic UI, for the screenshot only. On Windows, the real faces render tighter. The committed PNGs are 2× and were optimized losslessly with oxipng. Don't quantize them: palette reduction merges the dark-theme layers, which differ by only about 8 levels.
-- **Budget.** Production JS, gzipped: the popup is about 35 KB (7 KB page + 28 KB shared runtime), settings about 40 KB, against a 60 KB budget. CSS is about 4 KB for the popup and about 6 KB for settings.
+- **Budget.** Production JS, gzipped: the popup is about 38 KB (7.6 KB page + 30 KB shared runtime), settings about 49 KB (18.7 KB page + 30 KB shared), against a 60 KB budget. CSS is about 4 KB for the popup and about 7 KB for settings.

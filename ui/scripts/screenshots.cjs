@@ -68,6 +68,10 @@ const popupScenes = [
   { name: 'popup-pinned-collapsed-toast', q: 'scene=error', pinCopy: true },
   { name: 'popup-notext', q: 'scene=notext' },
   { name: 'popup-mica', q: 'scene=error&mica' },
+  // v0.2
+  { name: 'popup-timings', q: 'scene=done&timings=1' },
+  { name: 'popup-timings-cold', q: 'scene=error&timings=1&cold=1' },
+  { name: 'popup-timings-ocr', q: 'scene=ocr&timings=1' },
 ];
 const settingsScenes = [
   { name: 'settings-general', q: 'section=general' },
@@ -78,6 +82,13 @@ const settingsScenes = [
   { name: 'settings-appearance', q: 'section=appearance' },
   { name: 'settings-about', q: 'section=about' },
   { name: 'settings-en', q: 'section=translate&ui=en-US' },
+  // v0.2
+  { name: 'settings-engines-multi', q: 'section=translate&engines=multi', reveal: '.page > .group:nth-of-type(2)', offset: 0 },
+  { name: 'settings-engines-multi-config', q: 'section=translate&engines=multi', expandId: 'openai-7mf2ad', confirmDelete: true },
+  { name: 'settings-add-service', q: 'section=translate&engines=multi', scroll: true, picker: true },
+  { name: 'settings-perf', q: 'section=about', reveal: '.page > .group:nth-of-type(2)', offset: 0 },
+  { name: 'settings-perf-system', q: 'section=about', reveal: '.system', offset: 40 },
+  { name: 'settings-perf-empty', q: 'section=about&perf=empty', reveal: '.page > .group:nth-of-type(2)', offset: 0 },
 ];
 
 async function main() {
@@ -134,6 +145,29 @@ async function main() {
             await page.waitForTimeout(200);
           }
           if (s.scroll) await page.$eval('.page', (el) => el.scrollTo(0, el.scrollHeight));
+          if (s.reveal) {
+            // Scroll the page so `reveal` starts near the top (minus `offset` for its group title).
+            await page.$eval(
+              '.page',
+              (el, [sel, off]) => {
+                const t = el.querySelector(sel);
+                if (t) el.scrollTo(0, t.getBoundingClientRect().top - el.getBoundingClientRect().top + el.scrollTop - 20 - off);
+              },
+              [s.reveal, s.offset ?? 40],
+            );
+          }
+          if (s.expandId) {
+            await page.click(`[data-engine-row="${s.expandId}"] .disclose`);
+            await page.waitForTimeout(150);
+            await page.$eval(`[data-engine-row="${s.expandId}"]`, (el) => el.scrollIntoView({ block: 'start' }));
+            await page.$eval('.page', (el) => el.scrollBy(0, -12));
+            if (s.confirmDelete) await page.click(`[data-engine-row="${s.expandId}"] .remove`);
+            await page.waitForTimeout(150);
+          }
+          if (s.picker) {
+            await page.click('.add');
+            await page.waitForTimeout(250);
+          }
           if (s.test) {
             await page.click('.engine >> nth=1 >> text=测试');
             await page.click('.engine >> nth=2 >> text=测试');

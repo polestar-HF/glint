@@ -1,5 +1,6 @@
 <script lang="ts" generics="T extends string | number">
   import Icon from '../../lib/Icon.svelte';
+  import { viewportRect } from '../../lib/viewport';
 
   interface Props {
     value: T;
@@ -27,12 +28,13 @@
   function show() {
     if (!btn) return;
     const r = btn.getBoundingClientRect();
-    const maxH = Math.min(360, window.innerHeight - 16);
+    const vp = viewportRect();
+    const maxH = Math.min(360, vp.bottom - vp.top - 16);
     const fullH = options.length * ITEM + PAD * 2;
     const h = Math.min(fullH, maxH);
     // Like a Fluent ComboBox: open with the selected item lying over the button.
     const ideal = r.top - (PAD + index * ITEM);
-    const top = Math.max(8, Math.min(ideal, window.innerHeight - 8 - h));
+    const top = Math.max(vp.top + 8, Math.min(ideal, vp.bottom - 8 - h));
     pos = { top, left: r.left - 4, width: r.width + 8, maxH };
     active = index;
     open = true;
@@ -102,7 +104,11 @@
       const t = e.target as Node;
       if (!list?.contains(t) && !btn?.contains(t)) close();
     };
+    // A click on a half-visible anchor scrolls it into view first; that scroll arrives just
+    // after opening and must not close the flyout again.
+    const openedAt = performance.now();
     const scroll = (e: Event) => {
+      if (performance.now() - openedAt < 200) return;
       if (!list?.contains(e.target as Node)) close();
     };
     window.addEventListener('pointerdown', away, true);

@@ -4,6 +4,7 @@
   import { api } from '../../lib/ipc';
   import { t, type MessageKey } from '../../lib/i18n.svelte';
   import Group from '../controls/Group.svelte';
+  import PerfCard from './PerfCard.svelte';
 
   const REPO = 'https://github.com/polestar-HF/glint';
   const links: Array<{ label: MessageKey; url: string }> = [
@@ -38,6 +39,8 @@
     </button>
   {/each}
 </Group>
+
+<PerfCard />
 
 <Group title={t('about.groupOss')}>
   {#each oss as o (o.name)}

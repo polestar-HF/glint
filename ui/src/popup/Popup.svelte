@@ -33,12 +33,15 @@
     if (!tr) return s.targetLang === 'en' ? 'zh-Hans' : 'en';
     return tr.targetLang !== s.targetLang ? tr.targetLang : tr.secondaryLang;
   });
+  // OCR reports engine ids ("paddle" | "windows"); show the product names.
+  const ocrEngineName = $derived(({ paddle: 'PaddleOCR', windows: 'Windows OCR' } as Record<string, string>)[s.ocrEngine] ?? s.ocrEngine);
   const contentLang = $derived(htmlLang(s.sourceLang === 'auto' ? s.detectedLang : s.sourceLang));
   const sourceMeta = $derived.by(() => {
     if (s.ocrStatus === 'pending') return t('popup.recognizing');
     if (s.ocrStatus !== 'done') return '';
     if (s.edited) return t('popup.edited');
-    return [s.ocrEngine, fmtMs(s.ocrElapsed)].filter(Boolean).join(' · ');
+    // With timings on, the total moves to the timings line; don't say it twice.
+    return [ocrEngineName, showTimings ? '' : fmtMs(s.ocrElapsed)].filter(Boolean).join(' · ');
   });
   // v0.2: one quiet line of timings, e.g.
   // 截图 21 ms · 选区 34 ms · 识别 142 ms（检测 48 / 识别 81）· 首字 610 ms. Absent parts are left out.
@@ -66,7 +69,7 @@
     if (s.ocrStatus === 'pending') return t('popup.recognizing');
     if (s.ocrStatus !== 'done' || !s.text) return '';
     const n = s.text.split('\n').filter((l) => l.trim()).length;
-    return [s.ocrEngine, fmtMs(s.ocrElapsed), t('popup.lines', { n })].filter(Boolean).join(' · ');
+    return [ocrEngineName, showTimings ? '' : fmtMs(s.ocrElapsed), t('popup.lines', { n })].filter(Boolean).join(' · ');
   });
 
   // ── Config ────────────────────────────────────────────────────────────────
@@ -291,10 +294,10 @@
 
 {#snippet timingLine()}
   {#if timingParts.length}
+    <!-- Each part is unbreakable and carries its trailing " ·" (joined by a no-break space),
+         so a wrap never leaves a dot at the start of a line. -->
     <div class="timings tnum">
-      {#each timingParts as part, i (i)}
-        {#if i}<span class="timings-sep" aria-hidden="true">·</span>{/if}<span>{part}</span>
-      {/each}
+      {#each timingParts as part, i (i)}<span>{part}{i < timingParts.length - 1 ? (part.endsWith('）') ? '·' : '\u00a0·') : ''}</span>{' '}{/each}
     </div>
   {/if}
 {/snippet}

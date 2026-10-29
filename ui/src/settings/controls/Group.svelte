@@ -16,7 +16,8 @@
 </section>
 
 <style>
-  .group + :global(.group) {
+  /* `~`, not `+`: a section may put a non-group element (a toast) between groups. */
+  .group ~ :global(.group) {
     margin-top: 24px;
   }
   .group-title {

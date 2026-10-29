@@ -10,6 +10,7 @@
     kindSpec,
     missingFields,
     missingHint,
+    requiredFields,
     presetForUrl,
     protocolLabel,
     type FieldKey,
@@ -37,6 +38,7 @@
   const name = $derived(engineName(e));
   const added = $derived(isUserAdded(e));
   const missing = $derived(missingFields(e));
+  const required = $derived(requiredFields(e));
   const hint = $derived(spec.free ? '' : missingHint(e));
   const customBase = $derived(e.kind === 'openai' && !!e.baseUrl?.trim() && !e.baseUrl.includes('api.openai.com'));
 
@@ -143,11 +145,7 @@
         {#if primary}<span class="primary-mark">{t('tr.primary')}</span>{/if}
       </div>
       <div class="engine-sub">
-        {#if sub}<span class="sub-text">{sub}</span>{/if}
-        {#if hint}
-          {#if sub}<span class="sub-sep" aria-hidden="true">·</span>{/if}
-          <span class:warn={e.enabled}>{hint}</span>
-        {/if}
+        {sub}{#if hint}{#if sub}{' · '}{/if}<span class:warn={e.enabled}>{hint}</span>{/if}
       </div>
       {#if test.state === 'ok' || test.state === 'error'}
         <div class="test-result" class:error={test.state === 'error'} role="status">
@@ -196,7 +194,7 @@
           {@const need = missing.includes(f.key)}
           {@const h = fieldHint(f.key, f.hint)}
           <label class="f-label" for="{uid}-{f.key}">
-            {t(f.label)}{#if f.optional && !need}<span class="f-opt">{t('field.optional')}</span>{/if}
+            {t(f.label)}{#if f.optional && !required.includes(f.key)}<span class="f-opt">{t('field.optional')}</span>{/if}
           </label>
           <div class="f-input">
             {#if f.multiline}
@@ -338,18 +336,13 @@
     flex: none;
   }
   .engine-sub {
-    display: flex;
-    gap: 6px;
+    overflow: hidden;
+    text-overflow: ellipsis;
     font-family: var(--font-small);
     font-size: var(--fs-caption);
     line-height: 16px;
     color: var(--text-3);
     white-space: nowrap;
-  }
-  .sub-text {
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
   .engine-sub .warn {
     color: var(--caution);

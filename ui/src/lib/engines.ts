@@ -168,18 +168,22 @@ export function engineFromPreset(p: Preset, taken: Iterable<string>): EngineConf
  *   services that need one; a model whenever the base URL is custom.
  * - anthropic: key unless a base URL is set (proxies may not need one).
  */
-export function missingFields(e: EngineConfig): FieldKey[] {
+export function requiredFields(e: EngineConfig): FieldKey[] {
   const has = (k: FieldKey) => !!(e[k] && String(e[k]).trim());
   if (e.kind === 'openai') {
     const base = has('baseUrl') ? String(e.baseUrl).trim() : '';
     const official = !base || base.includes('api.openai.com');
     const out: FieldKey[] = [];
-    if (!has('apiKey') && (official || presetForUrl(base)?.key === 'required')) out.push('apiKey');
-    if (!official && !has('model')) out.push('model');
+    if (official || presetForUrl(base)?.key === 'required') out.push('apiKey');
+    if (!official) out.push('model');
     return out;
   }
-  if (e.kind === 'anthropic') return !has('apiKey') && !has('baseUrl') ? ['apiKey'] : [];
-  return kindSpec(e.kind).required.filter((k) => !has(k));
+  if (e.kind === 'anthropic') return has('baseUrl') ? [] : ['apiKey'];
+  return kindSpec(e.kind).required;
+}
+
+export function missingFields(e: EngineConfig): FieldKey[] {
+  return requiredFields(e).filter((k) => !(e[k] && String(e[k]).trim()));
 }
 
 export function isConfigured(e: EngineConfig): boolean {

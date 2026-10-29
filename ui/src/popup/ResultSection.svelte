@@ -18,6 +18,11 @@
   let { r, primary, showTimings = false, lang, oncopy, onretry, ontoggle }: Props = $props();
 
   const hasText = $derived(r.text.length > 0);
+  const meta = $derived(
+    showTimings && r.firstTokenMs != null
+      ? `${t('tm.first')} ${fmtMs(r.firstTokenMs)} · ${fmtMs(r.elapsedMs)}`
+      : fmtMs(r.elapsedMs),
+  );
   const live = $derived(r.status === 'streaming' || (r.status === 'pending' && hasText));
 </script>
 
@@ -25,9 +30,7 @@
   <div class="sec-head">
     <span class="sec-label">{r.engineName}</span>
     {#if r.status === 'done' && r.elapsedMs != null}
-      <span class="meta tnum">
-        {#if showTimings && r.firstTokenMs != null}{t('tm.first')} {fmtMs(r.firstTokenMs)} · {/if}{fmtMs(r.elapsedMs)}
-      </span>
+      <span class="meta tnum">{meta}</span>
     {/if}
     {#if r.collapsed && hasText}
       <button class="sec-peek" lang={htmlLang(lang)} onclick={ontoggle}>{r.text}</button>

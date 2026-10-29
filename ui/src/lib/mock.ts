@@ -5,11 +5,13 @@
 //   ?scene=recognizing | pending | streaming | done | error | ocr | notext | ocrerror
 //   ?freeze=<ms>       run the timeline up to <ms> instantly and stop there
 //   ?ui=en-US          English UI      ?font=16   font size      ?theme=dark|light
-// settings.html accepts ?ui, ?theme and ?section=<id>.
+//   ?timings=1         ui.showTimings on        ?cold=1    OCR includes a model load
+// settings.html accepts ?ui, ?theme, ?section=<id>, ?engines=multi (two user-added LLM
+// services, one missing its model) and ?perf=empty (no statistics yet).
 
 import { defaultConfig, normalizeConfig } from './engines';
 import type { Backend } from './ipc';
-import type { Config, EngineConfig, EventMap, EventName, Mode, SessionSnapshot } from './types';
+import type { Config, EngineConfig, EventMap, EventName, Mode, PerfStats, SessionSnapshot } from './types';
 
 const q = new URLSearchParams(location.search);
 const scene = q.get('scene') ?? 'live';
@@ -37,6 +39,29 @@ function mockConfig(): Config {
   const google = byId('google');
   const bing = { ...byId('bing'), enabled: false };
   c.translate.engines = [claude, google, deepl, bing, byId('openai'), byId('youdao'), byId('baidu')];
+  if (q.get('engines') === 'multi') {
+    // Two services added from presets; 通义千问 still has no model, so it shows a hint.
+    const deepseek: EngineConfig = {
+      id: 'openai-k3x9q2',
+      kind: 'openai',
+      enabled: true,
+      name: 'DeepSeek',
+      baseUrl: 'https://api.deepseek.com/v1',
+      model: 'deepseek-chat',
+      apiKey: 'sk-••••••••••••••••',
+    };
+    const qwen: EngineConfig = {
+      id: 'openai-7mf2ad',
+      kind: 'openai',
+      enabled: true,
+      name: '通义千问',
+      baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+      model: null,
+      apiKey: 'sk-••••••••••••••••',
+    };
+    c.translate.engines = [claude, google, deepseek, qwen, deepl, bing, byId('openai'), byId('youdao'), byId('baidu')];
+  }
+  if (q.get('timings') === '1') c.ui.showTimings = true;
   if (q.get('ui') === 'en-US') c.general.uiLanguage = 'en-US';
   const font = Number(q.get('font'));
   if (font) c.ui.fontSize = font;
@@ -56,6 +81,9 @@ export function createMockBackend(): Backend {
   const freezeAt = q.has('freeze') ? Number(q.get('freeze')) : freezeFor(scene);
   let frozen = freezeAt != null;
   const timers: Array<{ at: number; fn: () => void }> = [];
+  const cold = q.get('cold') === '1';
+  const coldLoad = cold ? { loadMs: 1046 } : {};
+  let perf: PerfStats = q.get('perf') === 'empty' ? emptyPerf() : samplePerf();
 
   function emit<K extends EventName>(event: K, payload: EventMap[K]) {
     track(event, payload);
@@ -97,7 +125,7 @@ export function createMockBackend(): Backend {
       }
       case 'tr:done': {
         const s = p as EventMap['tr:done'];
-        Object.assign(tr(s.engineId), { status: 'done', text: s.text, elapsedMs: s.elapsedMs });
+        Object.assign(tr(s.engineId), { status: 'done', text: s.text, elapsedMs: s.elapsedMs, firstTokenMs: s.firstTokenMs });
         break;
       }
       case 'tr:error': {
@@ -133,7 +161,13 @@ export function createMockBackend(): Backend {
     return out;
   }
 
-  function streamEngine(id: number, e: EngineConfig, name: string, start: number, opts: { fail?: boolean; size: number; every: number }) {
+  function streamEngine(
+    id: number,
+    e: EngineConfig,
+    name: string,
+    start: number,
+    opts: { fail?: boolean; size: number; every: number; fast?: boolean },
+  ) {
     at(start, () => emit('tr:start', { sessionId: id, engineId: e.id, engineName: name }));
     if (opts.fail) {
       at(start + 1300, () =>
@@ -148,7 +182,10 @@ export function createMockBackend(): Backend {
       at(start + 80 + i * opts.every, () => emit('tr:delta', { sessionId: id, engineId: e.id, delta, seq: seq++ })),
     );
     const total = 80 + parts.length * opts.every;
-    at(start + total + 20, () => emit('tr:done', { sessionId: id, engineId: e.id, text, elapsedMs: total + 60 }));
+    const elapsedMs = total + 60;
+    // Web endpoints answer in one go (first token ≈ the whole request); LLMs stream early.
+    const firstTokenMs = Math.round(elapsedMs * (opts.fast ? 0.82 : 0.55));
+    at(start + total + 20, () => emit('tr:done', { sessionId: id, engineId: e.id, text, elapsedMs, firstTokenMs }));
   }
 
   const names: Record<string, string> = { claude: 'Claude', google: 'Google 翻译', deepl: 'DeepL', bing: '必应翻译' };
@@ -162,13 +199,20 @@ export function createMockBackend(): Backend {
         fail: e.kind === 'deepl',
         size: fast ? 12 : 3,
         every: fast ? 70 : 42,
+        fast,
       });
     });
   }
 
   function runSession(mode: Mode) {
     const id = ++sessionId;
-    emit('session:start', { sessionId: id, mode, sourceLang: config.translate.sourceLang, targetLang: config.translate.targetLang });
+    emit('session:start', {
+      sessionId: id,
+      mode,
+      sourceLang: config.translate.sourceLang,
+      targetLang: config.translate.targetLang,
+      timings: { hotkeyToOverlayMs: 58, captureMs: 21, overlayMs: 34 },
+    });
     if (scene === 'recognizing') return;
     at(200, () => {
       if (scene === 'ocrerror') {
@@ -181,8 +225,10 @@ export function createMockBackend(): Backend {
         text,
         lines: text.split('\n').filter(Boolean).map((t, i) => ({ text: t, box: [0, i * 24, 400, 20], confidence: 0.97 })),
         detectedLang: text ? (mode === 'ocr' ? 'zh-Hans' : 'en') : null,
-        elapsedMs: mode === 'ocr' ? 64 : 86,
+        // det + rec + pre/post-processing; a cold start adds the model load.
+        elapsedMs: (mode === 'ocr' ? 118 : 142) + (cold ? 1046 : 0),
         engine: 'PaddleOCR',
+        timings: mode === 'ocr' ? { detMs: 41, recMs: 66, ...coldLoad } : { detMs: 48, recMs: 81, ...coldLoad },
       });
       if (mode === 'translate' && text) translateAll(id, 40);
     });
@@ -222,9 +268,20 @@ export function createMockBackend(): Backend {
       const e = engine as EngineConfig;
       await sleep(e.kind === 'google' ? 380 : 720);
       if (e.kind === 'deepl') throw 'service error (403): Authorization failed. Check the API key.';
-      if ((e.kind === 'anthropic' || e.kind === 'youdao' || e.kind === 'baidu') && !e.apiKey) throw 'missing configuration: apiKey';
+      if ((e.kind === 'youdao' || e.kind === 'baidu') && !e.apiKey) throw 'missing configuration: apiKey';
+      if (e.kind === 'anthropic' && !e.apiKey && !e.baseUrl) throw 'missing configuration: apiKey';
+      if (e.kind === 'openai') {
+        const official = !e.baseUrl || e.baseUrl.includes('api.openai.com');
+        if (official && !e.apiKey) throw 'missing configuration: The OpenAI API key is not set';
+        if (!official && !e.model) throw 'missing configuration: Set the model name for this service';
+      }
       return '你好，世界。';
     },
+    get_perf_stats: () => structuredClone(perf),
+    reset_perf_stats: () => {
+      perf = emptyPerf();
+    },
+    get_diagnostics: () => diagnostics(perf),
     copy_text: async ({ text }) => {
       try {
         await navigator.clipboard?.writeText(String(text));
@@ -278,4 +335,68 @@ function freezeFor(s: string): number | null {
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+function system(): PerfStats['system'] {
+  return {
+    app: 'Glint 0.2.0',
+    os: 'Windows 11 Pro 24H2 (26100.2314)',
+    cpuThreads: 16,
+    webview: '131.0.2903.70',
+    monitors: [
+      { width: 2560, height: 1440, scale: 1.5 },
+      { width: 1920, height: 1080, scale: 1 },
+    ],
+  };
+}
+
+function emptyPerf(): PerfStats {
+  return { sessions: 0, since: new Date().toISOString(), metrics: [], engines: [], system: system() };
+}
+
+/** Plausible numbers for a mid-range laptop after about a week of use. */
+function samplePerf(): PerfStats {
+  return {
+    sessions: 128,
+    since: '2026-10-21T09:12:00+08:00',
+    metrics: [
+      { key: 'hotkeyToOverlay', n: 128, p50: 58, p90: 83, max: 161 },
+      { key: 'capture', n: 128, p50: 21, p90: 29, max: 64 },
+      { key: 'overlay', n: 128, p50: 34, p90: 47, max: 92 },
+      { key: 'ocr', n: 124, p50: 142, p90: 238, max: 611 },
+      { key: 'ocrCold', n: 4, p50: 1188, p90: 1402, max: 1460 },
+      { key: 'ocrLoad', n: 4, p50: 1046, p90: 1219, max: 1254 },
+      { key: 'det', n: 128, p50: 48, p90: 77, max: 190 },
+      { key: 'rec', n: 128, p50: 81, p90: 152, max: 402 },
+    ],
+    engines: [
+      { engineId: 'claude', engineName: 'Claude', n: 96, errors: 2, p50: 1064, p90: 1873, firstTokenP50: 585 },
+      { engineId: 'google', engineName: 'Google 翻译', n: 121, errors: 0, p50: 412, p90: 690, firstTokenP50: 338 },
+      { engineId: 'openai-k3x9q2', engineName: 'DeepSeek', n: 22, errors: 1, p50: 1640, p90: 2904, firstTokenP50: 893 },
+      { engineId: 'deepl', engineName: 'DeepL', n: 37, errors: 9, p50: 520, p90: 884, firstTokenP50: null },
+    ],
+    system: system(),
+  };
+}
+
+function diagnostics(p: PerfStats): string {
+  const pad = (s: string | number, n: number) => String(s).padStart(n);
+  const lines = [
+    `${p.system.app} diagnostics`,
+    `sessions: ${p.sessions} since ${p.since}`,
+    '',
+    `os: ${p.system.os}`,
+    `cpu threads: ${p.system.cpuThreads}`,
+    `webview2: ${p.system.webview}`,
+    `monitors: ${p.system.monitors.map((m) => `${m.width}x${m.height}@${m.scale}`).join(', ')}`,
+    '',
+    `metric (ms)        ${pad('n', 5)}${pad('p50', 7)}${pad('p90', 7)}${pad('max', 7)}`,
+    ...p.metrics.map((m) => `${m.key.padEnd(19)}${pad(m.n, 5)}${pad(m.p50, 7)}${pad(m.p90, 7)}${pad(m.max, 7)}`),
+    '',
+    `engine (ms)        ${pad('n', 5)}${pad('err', 5)}${pad('p50', 7)}${pad('p90', 7)}${pad('first', 7)}`,
+    ...p.engines.map(
+      (e) => `${e.engineId.padEnd(19)}${pad(e.n, 5)}${pad(e.errors, 5)}${pad(e.p50, 7)}${pad(e.p90, 7)}${pad(e.firstTokenP50 ?? '-', 7)}`,
+    ),
+  ];
+  return lines.join('\n');
 }

@@ -2,6 +2,7 @@
   import Icon from '../../lib/Icon.svelte';
   import { t } from '../../lib/i18n.svelte';
   import { PRESETS, hostOf, presetLabel, protocolLabel, type Preset } from '../../lib/engines';
+  import { viewportRect } from '../../lib/viewport';
 
   let { onpick }: { onpick: (p: Preset) => void } = $props();
 
@@ -24,8 +25,9 @@
   function show() {
     if (!btn) return;
     const r = btn.getBoundingClientRect();
-    const below = window.innerHeight - r.bottom - 12;
-    const above = r.top - 12;
+    const vp = viewportRect();
+    const below = vp.bottom - r.bottom - 12;
+    const above = r.top - vp.top - 12;
     // Prefer opening downward; the button usually sits low on the page, so flip when cramped.
     pos =
       below >= 320 || below >= above
@@ -69,7 +71,11 @@
       const n = e.target as Node;
       if (!menu?.contains(n) && !btn?.contains(n)) close(false);
     };
+    // A click on a half-visible anchor scrolls it into view first; that scroll arrives just
+    // after opening and must not close the flyout again.
+    const openedAt = performance.now();
     const scroll = (e: Event) => {
+      if (performance.now() - openedAt < 200) return;
       if (!menu?.contains(e.target as Node)) close(false);
     };
     const shut = () => close(false);

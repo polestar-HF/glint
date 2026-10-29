@@ -239,9 +239,6 @@ html.preview-hidden #app {
 /* v0.2 timings line: a second, quieter meta row under the source header. Parts never
    break inside; the line wraps between them. */
 .timings {
-  display: flex;
-  flex-wrap: wrap;
-  column-gap: 6px;
   margin: -2px 0 4px;
   font-family: var(--font-small);
   font-size: var(--fs-caption);
