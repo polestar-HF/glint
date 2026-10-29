@@ -1,6 +1,8 @@
 //! The current capture session's state, mirrored to the popup via events and
 //! `get_session_snapshot` (so a freshly created popup can catch up).
 
+use std::time::Instant;
+
 use glint_ocr::OcrResult;
 use serde::Serialize;
 
@@ -43,6 +45,11 @@ pub struct TranslationState {
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
+    /// Engine start to first streamed text.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_token_ms: Option<u64>,
+    #[serde(skip)]
+    pub started: Option<Instant>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -54,6 +61,31 @@ pub struct SessionSnapshot {
     pub target_lang: String,
     pub ocr: OcrState,
     pub translations: Vec<TranslationState>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timings: Option<CaptureTimings>,
+}
+
+/// Hotkey → overlay timings of a capture session (milliseconds).
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CaptureTimings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub hotkey_to_overlay_ms: Option<u64>,
+    pub capture_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub overlay_ms: Option<u64>,
+}
+
+/// Where the OCR time went (milliseconds). `load_ms` only when this capture loaded the model.
+#[derive(Debug, Clone, Copy, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct OcrTimings {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub load_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub det_ms: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rec_ms: Option<u64>,
 }
 
 impl SessionSnapshot {
@@ -69,6 +101,7 @@ impl SessionSnapshot {
                 message: None,
             },
             translations: Vec::new(),
+            timings: None,
         }
     }
 
@@ -88,6 +121,8 @@ pub struct SessionStart {
     pub mode: Mode,
     pub source_lang: String,
     pub target_lang: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub timings: Option<CaptureTimings>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -97,6 +132,7 @@ pub struct OcrPayload {
     #[serde(flatten)]
     pub result: OcrResult,
     pub elapsed_ms: u64,
+    pub timings: OcrTimings,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -131,6 +167,8 @@ pub struct TrDone {
     pub engine_id: String,
     pub text: String,
     pub elapsed_ms: u64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub first_token_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize)]

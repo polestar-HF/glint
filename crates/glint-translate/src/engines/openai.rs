@@ -52,6 +52,13 @@ impl OpenAi {
                 "The OpenAI API key is not set".into(),
             ));
         }
+        // Third-party servers (DeepSeek, Ollama, ...) have their own model names; falling back
+        // to an OpenAI model name would only fail later with a confusing 404.
+        if !official && non_empty(cfg.model.as_deref()).is_none() {
+            return Err(TranslateError::Config(
+                "Set the model name for this service".into(),
+            ));
+        }
         Ok(Self {
             id,
             name,
@@ -761,5 +768,21 @@ data: [DONE]
             .unwrap_or_else(|e| panic!("builds: {e}"));
         assert!(o.official);
         assert_eq!(o.url, "https://api.openai.com/v1/chat/completions");
+    }
+
+    #[test]
+    fn third_party_servers_need_an_explicit_model() {
+        let http = reqwest::Client::new();
+        let mut cfg = crate::default_engines().remove(3);
+        cfg.base_url = Some("http://localhost:11434/v1".into());
+        cfg.model = Some("  ".into());
+        assert!(matches!(
+            OpenAi::new("o".into(), "O".into(), &cfg, http.clone()),
+            Err(TranslateError::Config(_))
+        ));
+        cfg.model = Some("qwen3:8b".into());
+        let o = OpenAi::new("o".into(), "O".into(), &cfg, http)
+            .unwrap_or_else(|e| panic!("builds: {e}"));
+        assert_eq!(o.model, "qwen3:8b");
     }
 }

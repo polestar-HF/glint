@@ -98,6 +98,8 @@ pub struct Ui {
     pub font_size: u32,
     pub accent: String,
     pub close_on_blur: bool,
+    /// Show capture / OCR / first-token timings in the popup.
+    pub show_timings: bool,
     pub popup_idle_destroy_secs: u64,
 }
 
@@ -108,6 +110,7 @@ impl Default for Ui {
             font_size: 14,
             accent: "#1E6AC5".into(),
             close_on_blur: false,
+            show_timings: false,
             popup_idle_destroy_secs: 600,
         }
     }

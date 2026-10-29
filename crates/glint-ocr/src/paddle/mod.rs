@@ -490,4 +490,12 @@ impl OcrEngine for PaddleOcr {
     fn recognize(&self, img: &RgbaImage, opts: &OcrOptions) -> Result<OcrResult> {
         self.recognize_timed(img, opts).map(|(r, _)| r)
     }
+
+    fn recognize_with_timings(
+        &self,
+        img: &RgbaImage,
+        opts: &OcrOptions,
+    ) -> Result<(OcrResult, Option<Timings>)> {
+        self.recognize_timed(img, opts).map(|(r, t)| (r, Some(t)))
+    }
 }

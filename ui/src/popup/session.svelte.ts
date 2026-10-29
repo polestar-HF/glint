@@ -1,7 +1,9 @@
 // Popup state: one translation session at a time. Events for older sessions are dropped.
 
 import type {
+  CaptureTimings,
   Mode,
+  OcrTimings,
   OcrErrorEvent,
   OcrResultEvent,
   SessionSnapshot,
@@ -24,6 +26,8 @@ export interface ResultView {
   collapsed: boolean;
   /** Deltas applied so far (for de-duplicating replays after a snapshot). */
   deltas: number;
+  /** v0.2: engine start → first delta. */
+  firstTokenMs: number | null;
 }
 
 export interface PredictedEngine {
@@ -52,6 +56,10 @@ export class Session {
 
   results = $state<ResultView[]>([]);
   sourceCollapsed = $state(false);
+
+  /** v0.2 timings. Kept across a `retranslate`: the capture and OCR they describe are unchanged. */
+  captureTimings = $state<CaptureTimings | null>(null);
+  ocrTimings = $state<OcrTimings | null>(null);
 
   /** Set while a `retranslate` call is in flight: the next session keeps the edited text. */
   expectRetranslate: { text: string } | null = null;
@@ -86,6 +94,7 @@ export class Session {
       this.mode = p.mode;
       this.sourceLang = p.sourceLang;
       this.targetLang = p.targetLang;
+      if (p.timings) this.captureTimings = p.timings;
       return;
     }
     this.id = p.sessionId;
@@ -101,6 +110,8 @@ export class Session {
       this.submittedText = re.text;
       this.text = re.text;
     } else {
+      this.captureTimings = p.timings ?? null;
+      this.ocrTimings = null;
       this.ocrStatus = 'pending';
       this.ocrEngine = '';
       this.ocrElapsed = null;
@@ -122,6 +133,7 @@ export class Session {
     this.ocrStatus = 'done';
     this.ocrEngine = p.engine;
     this.ocrElapsed = p.elapsedMs;
+    this.ocrTimings = p.timings ?? null;
     // OCR reports a bare "zh" (it cannot tell scripts apart); the UI's language list has no such
     // code, so name it, and compare it with the target, as Simplified.
     this.detectedLang = p.detectedLang === 'zh' ? 'zh-Hans' : p.detectedLang;
@@ -160,6 +172,7 @@ export class Session {
     r.message = '';
     r.elapsedMs = null;
     r.deltas = 0;
+    r.firstTokenMs = null;
   }
 
   trDelta(p: TrDelta) {
@@ -178,6 +191,7 @@ export class Session {
     r.text = p.text;
     r.status = 'done';
     r.elapsedMs = p.elapsedMs;
+    r.firstTokenMs = p.firstTokenMs ?? null;
   }
 
   trError(p: TrError) {
@@ -198,7 +212,13 @@ export class Session {
     if (s.sessionId < this.id) return;
     this.id = 0; // force a fresh start for this id
     this.expectRetranslate = null;
-    this.start({ sessionId: s.sessionId, mode: s.mode, sourceLang: s.sourceLang, targetLang: s.targetLang });
+    this.start({
+      sessionId: s.sessionId,
+      mode: s.mode,
+      sourceLang: s.sourceLang,
+      targetLang: s.targetLang,
+      timings: s.timings,
+    });
     if (s.ocr.status === 'done' && s.ocr.result) {
       this.ocrResult({ sessionId: s.sessionId, ...s.ocr.result });
     } else if (s.ocr.status === 'error') {
@@ -211,11 +231,22 @@ export class Session {
         message: t.message ?? '',
         elapsedMs: t.elapsedMs ?? null,
         deltas: t.deltaCount ?? 0,
+        firstTokenMs: t.firstTokenMs ?? null,
       }));
     }
   }
 }
 
 function blank(engineId: string, engineName: string, status: ResultStatus): ResultView {
-  return { engineId, engineName, status, text: '', message: '', elapsedMs: null, collapsed: false, deltas: 0 };
+  return {
+    engineId,
+    engineName,
+    status,
+    text: '',
+    message: '',
+    elapsedMs: null,
+    collapsed: false,
+    deltas: 0,
+    firstTokenMs: null,
+  };
 }

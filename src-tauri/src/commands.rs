@@ -10,7 +10,7 @@ use tauri_plugin_clipboard_manager::ClipboardExt;
 use crate::config::{self, Config};
 use crate::pipeline::{self, CaptureMode};
 use crate::session::SessionSnapshot;
-use crate::{hotkeys, popup, settings, tray, AppState};
+use crate::{hotkeys, perf, popup, settings, tray, AppState};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -140,6 +140,52 @@ pub fn start_capture(app: AppHandle, window: tauri::Window, mode: String) {
         return;
     }
     pipeline::start_capture(&app, mode);
+}
+
+#[tauri::command]
+pub fn get_perf_stats(app: AppHandle, state: State<'_, AppState>) -> perf::PerfStats {
+    state.perf.stats(system_info(&app, &state))
+}
+
+#[tauri::command]
+pub fn reset_perf_stats(state: State<'_, AppState>) {
+    state.perf.reset();
+}
+
+#[tauri::command]
+pub fn get_diagnostics(app: AppHandle, state: State<'_, AppState>) -> String {
+    let stats = state.perf.stats(system_info(&app, &state));
+    let cfg = state.config();
+    let mut report = perf::diagnostics(&stats);
+    // Settings that change the numbers; never keys or endpoints.
+    let engines: Vec<String> = cfg
+        .translate
+        .engines
+        .iter()
+        .filter(|e| e.enabled)
+        .map(|e| format!("{}({})", e.id, e.kind))
+        .collect();
+    report.push_str(&format!(
+        "\nOCR 引擎: {}  合并段落: {}\n已启用翻译: {}\n",
+        cfg.ocr.engine,
+        cfg.ocr.merge_lines,
+        engines.join(", ")
+    ));
+    report
+}
+
+fn system_info(app: &AppHandle, state: &AppState) -> perf::SystemInfo {
+    #[cfg(windows)]
+    let os = format!("Windows build {}", popup::windows_build());
+    #[cfg(not(windows))]
+    let os = std::env::consts::OS.to_string();
+    perf::SystemInfo {
+        app: app.package_info().version.to_string(),
+        os,
+        cpu_threads: std::thread::available_parallelism().map_or(0, |n| n.get() as u32),
+        webview: tauri::webview_version().unwrap_or_else(|_| "-".into()),
+        monitors: state.perf.monitors(),
+    }
 }
 
 #[tauri::command]

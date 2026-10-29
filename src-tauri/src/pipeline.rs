@@ -4,11 +4,12 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use glint_overlay::{Action, Outcome, OverlayOptions, Selection};
+use glint_overlay::{Action, Outcome, OverlayOptions, OverlayStats, Selection};
 use glint_translate::{EngineEvent, TranslateRequest};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
+use crate::perf::{EngineSample, MonitorInfo, Sample};
 use crate::popup::{self, Anchor};
 use crate::session::*;
 use crate::AppState;
@@ -23,6 +24,12 @@ pub enum CaptureMode {
 pub struct OverlayJob {
     opts: OverlayOptions,
     popup_was_visible: bool,
+    /// When the hotkey (or tray / command) asked for the capture.
+    requested_at: Instant,
+}
+
+fn ms(d: Duration) -> u64 {
+    d.as_millis() as u64
 }
 
 /// The overlay pumps its own Win32 message loop, so it runs on one long-lived thread of its
@@ -37,14 +44,32 @@ pub fn spawn_overlay_worker(app: AppHandle) -> std::io::Result<Sender<OverlayJob
                     // Give DWM a frame to actually remove the popup before BitBlt.
                     std::thread::sleep(Duration::from_millis(40));
                 }
-                let outcome = glint_overlay::capture_all()
-                    .and_then(|frames| glint_overlay::select_region(frames, &job.opts));
-                app.state::<AppState>()
-                    .capturing
-                    .store(false, Ordering::SeqCst);
+                let capture_started = Instant::now();
+                let frames = glint_overlay::capture_all();
+                let captured_at = Instant::now();
+                let mut stats = OverlayStats::default();
+                let outcome = frames.and_then(|frames| {
+                    let monitors = frames
+                        .iter()
+                        .map(|f| MonitorInfo {
+                            width: f.rect.width,
+                            height: f.rect.height,
+                            scale: f.scale,
+                        })
+                        .collect();
+                    app.state::<AppState>().perf.set_monitors(monitors);
+                    glint_overlay::select_region_with_stats(frames, &job.opts, &mut stats)
+                });
+                let state = app.state::<AppState>();
+                state.capturing.store(false, Ordering::SeqCst);
+                let timings = CaptureTimings {
+                    hotkey_to_overlay_ms: stats.shown_at.map(|t| ms(t - job.requested_at)),
+                    capture_ms: ms(captured_at - capture_started),
+                    overlay_ms: stats.shown_at.map(|t| ms(t - captured_at)),
+                };
                 match outcome {
-                    Ok(Outcome::Selected(sel)) => run_session(&app, sel),
-                    Ok(Outcome::Cancelled) => {}
+                    Ok(Outcome::Selected(sel)) => run_session(&app, sel, timings, job.requested_at),
+                    Ok(Outcome::Cancelled) => state.perf.record(capture_sample(&timings)),
                     Err(e) => log::error!("capture failed: {e}"),
                 }
             }
@@ -82,6 +107,7 @@ pub fn start_capture(app: &AppHandle, mode: CaptureMode) {
         .send(OverlayJob {
             opts,
             popup_was_visible,
+            requested_at: Instant::now(),
         })
         .is_err()
     {
@@ -90,7 +116,16 @@ pub fn start_capture(app: &AppHandle, mode: CaptureMode) {
     }
 }
 
-fn run_session(app: &AppHandle, sel: Selection) {
+fn capture_sample(t: &CaptureTimings) -> Sample {
+    Sample {
+        hotkey_to_overlay: t.hotkey_to_overlay_ms.map(|v| v as f64),
+        capture: Some(t.capture_ms as f64),
+        overlay: t.overlay_ms.map(|v| v as f64),
+        ..Default::default()
+    }
+}
+
+fn run_session(app: &AppHandle, sel: Selection, timings: CaptureTimings, requested_at: Instant) {
     let state = app.state::<AppState>();
     let cfg = state.config();
     let session_id = state.next_session_id();
@@ -108,6 +143,7 @@ fn run_session(app: &AppHandle, sel: Selection) {
             mode,
             &cfg.translate.source_lang,
             &cfg.translate.target_lang,
+            Some(timings),
         );
         popup::show_at(
             app,
@@ -129,20 +165,23 @@ fn run_session(app: &AppHandle, sel: Selection) {
             lang_hint: cfg.translate.source_lang.clone(),
         };
         let started = Instant::now();
+        let ocr2 = ocr.clone();
         let result = tokio::task::spawn_blocking(move || {
-            let engine = ocr.get(&engine_kind)?;
+            let engine = ocr2.get(&engine_kind)?;
             engine
-                .recognize(&sel.image, &opts)
+                .recognize_with_timings(&sel.image, &opts)
                 .map_err(anyhow::Error::from)
         })
         .await
         .map_err(anyhow::Error::from)
         .and_then(|r| r);
-        let elapsed_ms = started.elapsed().as_millis() as u64;
+        let elapsed_ms = ms(started.elapsed());
 
-        let result = match result {
+        let mut sample = capture_sample(&timings);
+        let (result, stage) = match result {
             Ok(r) => r,
             Err(e) => {
+                state.perf.record(sample);
                 log::error!("ocr failed: {e:#}");
                 let message = ocr_user_message(&e);
                 if !silent {
@@ -162,12 +201,31 @@ fn run_session(app: &AppHandle, sel: Selection) {
             }
         };
 
+        let load = ocr.loaded_since(requested_at);
+        let ocr_timings = OcrTimings {
+            load_ms: load.map(ms),
+            det_ms: stage.map(|t| ms(t.detect)),
+            rec_ms: stage.map(|t| ms(t.recognize)),
+        };
+        // Recognition proper; waiting for a (pre)load is accounted for separately.
+        sample.ocr = Some(stage.map_or(elapsed_ms, |t| ms(t.total)) as f64);
+        sample.ocr_cold = load.is_some();
+        sample.ocr_load = load.map(|d| ms(d) as f64);
+        sample.det = ocr_timings.det_ms.map(|v| v as f64);
+        sample.rec = ocr_timings.rec_ms.map(|v| v as f64);
+        log::info!(
+            "session {session_id}: capture {} ms, overlay {:?} ms, ocr {elapsed_ms} ms ({ocr_timings:?})",
+            timings.capture_ms,
+            timings.overlay_ms
+        );
+
         if silent {
             if !result.text.is_empty() {
                 if let Err(e) = app.clipboard().write_text(result.text.clone()) {
                     log::error!("clipboard write failed: {e}");
                 }
             }
+            state.perf.record(sample);
             return;
         }
 
@@ -175,6 +233,7 @@ fn run_session(app: &AppHandle, sel: Selection) {
             session_id,
             result: result.clone(),
             elapsed_ms,
+            timings: ocr_timings,
         };
         state.update_session(session_id, |s| {
             s.ocr.status = Status::Done;
@@ -200,10 +259,11 @@ fn run_session(app: &AppHandle, sel: Selection) {
                         mode,
                         source_lang: cfg.translate.source_lang.clone(),
                         target_lang: target.clone(),
+                        timings: Some(timings),
                     },
                 );
             }
-            translate(
+            sample.engines = translate(
                 &app,
                 session_id,
                 result.text,
@@ -212,6 +272,7 @@ fn run_session(app: &AppHandle, sel: Selection) {
             )
             .await;
         }
+        state.perf.record(sample);
     });
     // A silent capture has no popup session: it must not abort the one the popup shows.
     if !silent {
@@ -223,26 +284,35 @@ fn run_session(app: &AppHandle, sel: Selection) {
 pub fn retranslate(app: &AppHandle, text: String, source: String, target: String) -> u64 {
     let state = app.state::<AppState>();
     let session_id = state.next_session_id();
-    begin_session(app, session_id, Mode::Translate, &source, &target);
+    begin_session(app, session_id, Mode::Translate, &source, &target, None);
     state.update_session(session_id, |s| {
         s.ocr.status = Status::Done;
     });
     let app2 = app.clone();
     let task = tauri::async_runtime::spawn(async move {
-        translate(&app2, session_id, text, source, target).await;
+        let engines = translate(&app2, session_id, text, source, target).await;
+        let sample = Sample {
+            engines,
+            ..Default::default()
+        };
+        app2.state::<AppState>().perf.record(sample);
     });
     state.replace_session_task(task);
     session_id
 }
 
-fn begin_session(app: &AppHandle, session_id: u64, mode: Mode, source: &str, target: &str) {
+fn begin_session(
+    app: &AppHandle,
+    session_id: u64,
+    mode: Mode,
+    source: &str,
+    target: &str,
+    timings: Option<CaptureTimings>,
+) {
     let state = app.state::<AppState>();
-    state.set_session(SessionSnapshot::new(
-        session_id,
-        mode,
-        source.into(),
-        target.into(),
-    ));
+    let mut snapshot = SessionSnapshot::new(session_id, mode, source.into(), target.into());
+    snapshot.timings = timings;
+    state.set_session(snapshot);
     let _ = app.emit(
         "session:start",
         SessionStart {
@@ -250,6 +320,7 @@ fn begin_session(app: &AppHandle, session_id: u64, mode: Mode, source: &str, tar
             mode,
             source_lang: source.into(),
             target_lang: target.into(),
+            timings,
         },
     );
 }
@@ -274,8 +345,14 @@ pub fn retranslate_engine(
     });
 }
 
-async fn translate(app: &AppHandle, session_id: u64, text: String, source: String, target: String) {
-    translate_with(app, session_id, text, source, target, None).await;
+async fn translate(
+    app: &AppHandle,
+    session_id: u64,
+    text: String,
+    source: String,
+    target: String,
+) -> Vec<EngineSample> {
+    translate_with(app, session_id, text, source, target, None).await
 }
 
 async fn translate_with(
@@ -285,7 +362,7 @@ async fn translate_with(
     source: String,
     target: String,
     only_engine: Option<&str>,
-) {
+) -> Vec<EngineSample> {
     let state = app.state::<AppState>();
     let cfg = state.config();
     let mut engines = Vec::new();
@@ -305,9 +382,35 @@ async fn translate_with(
             }
         }
     }
-    if engines.is_empty() {
-        return;
+    if !engines.is_empty() {
+        run_engines(app, session_id, &engines, text, source, target, &cfg).await;
     }
+    // What this session's engines did, for the performance stats.
+    state
+        .update_session(session_id, |s| {
+            s.translations
+                .iter()
+                .map(|t| EngineSample {
+                    engine_id: t.engine_id.clone(),
+                    engine_name: t.engine_name.clone(),
+                    elapsed: t.elapsed_ms.map(|v| v as f64),
+                    first_token: t.first_token_ms.map(|v| v as f64),
+                    error: t.status == Status::Error,
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+async fn run_engines(
+    app: &AppHandle,
+    session_id: u64,
+    engines: &[Box<dyn glint_translate::Translator>],
+    text: String,
+    source: String,
+    target: String,
+    cfg: &crate::config::Config,
+) {
     let req = TranslateRequest {
         text,
         source_lang: source,
@@ -315,7 +418,7 @@ async fn translate_with(
         secondary_lang: Some(cfg.translate.secondary_lang.clone()),
     };
     let app2 = app.clone();
-    glint_translate::translate_all(&engines, &req, move |ev| {
+    glint_translate::translate_all(engines, &req, move |ev| {
         on_engine_event(&app2, session_id, ev)
     })
     .await;
@@ -337,6 +440,8 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     delta_count: 0,
                     message: None,
                     elapsed_ms: None,
+                    first_token_ms: None,
+                    started: Some(Instant::now()),
                 };
                 // A per-engine retry restarts an existing entry in place.
                 match s.translation_mut(&engine_id) {
@@ -358,6 +463,9 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                 .update_session(session_id, |s| {
                     s.translation_mut(&engine_id).map(|t| {
                         t.status = Status::Streaming;
+                        if t.first_token_ms.is_none() && !delta.is_empty() {
+                            t.first_token_ms = t.started.map(|at| ms(at.elapsed()));
+                        }
                         t.text.push_str(&delta);
                         t.delta_count += 1;
                         t.delta_count - 1
@@ -381,13 +489,16 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
             text,
             elapsed_ms,
         } => {
-            state.update_session(session_id, |s| {
-                if let Some(t) = s.translation_mut(&engine_id) {
-                    t.status = Status::Done;
-                    t.text = text.clone();
-                    t.elapsed_ms = Some(elapsed_ms);
-                }
-            });
+            let first_token_ms = state
+                .update_session(session_id, |s| {
+                    s.translation_mut(&engine_id).and_then(|t| {
+                        t.status = Status::Done;
+                        t.text = text.clone();
+                        t.elapsed_ms = Some(elapsed_ms);
+                        t.first_token_ms
+                    })
+                })
+                .flatten();
             let _ = app.emit(
                 "tr:done",
                 TrDone {
@@ -395,6 +506,7 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     engine_id,
                     text,
                     elapsed_ms,
+                    first_token_ms,
                 },
             );
         }

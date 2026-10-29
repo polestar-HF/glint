@@ -76,4 +76,13 @@ pub type Result<T> = std::result::Result<T, OcrError>;
 pub trait OcrEngine: Send + Sync {
     fn name(&self) -> &'static str;
     fn recognize(&self, img: &RgbaImage, opts: &OcrOptions) -> Result<OcrResult>;
+
+    /// [`OcrEngine::recognize`], plus per-stage timings when the engine measures them.
+    fn recognize_with_timings(
+        &self,
+        img: &RgbaImage,
+        opts: &OcrOptions,
+    ) -> Result<(OcrResult, Option<Timings>)> {
+        self.recognize(img, opts).map(|r| (r, None))
+    }
 }

@@ -236,6 +236,25 @@ html.preview-hidden #app {
   margin-right: 2px;
 }
 
+/* v0.2 timings line: a second, quieter meta row under the source header. Parts never
+   break inside; the line wraps between them. */
+.timings {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 6px;
+  margin: -2px 0 4px;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--text-3);
+}
+.timings > span {
+  white-space: nowrap;
+}
+.ocr-sec .timings {
+  margin: 8px 0 0;
+}
+
 /* While the source is edited, the old translations step back until re-translated. */
 .result {
   transition: opacity var(--dur-2) var(--ease-std);

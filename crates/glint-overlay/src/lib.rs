@@ -117,7 +117,23 @@ pub fn capture_all() -> Result<Vec<MonitorFrame>> {
 /// Only one overlay can be open per process; a concurrent call returns
 /// `OverlayError::Window`.
 pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result<Outcome> {
-    imp::select_region(frames, opts)
+    select_region_with_stats(frames, opts, &mut OverlayStats::default())
+}
+
+/// Timing of one overlay run, for the app's performance statistics.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct OverlayStats {
+    /// When the overlay became visible on screen; `None` if it never did.
+    pub shown_at: Option<std::time::Instant>,
+}
+
+/// [`select_region`], also reporting when the overlay became visible.
+pub fn select_region_with_stats(
+    frames: Vec<MonitorFrame>,
+    opts: &OverlayOptions,
+    stats: &mut OverlayStats,
+) -> Result<Outcome> {
+    imp::select_region(frames, opts, stats)
 }
 
 #[cfg(not(windows))]
@@ -126,7 +142,11 @@ mod imp {
     pub fn capture_all() -> Result<Vec<MonitorFrame>> {
         Err(OverlayError::Unsupported)
     }
-    pub fn select_region(_: Vec<MonitorFrame>, _: &OverlayOptions) -> Result<Outcome> {
+    pub fn select_region(
+        _: Vec<MonitorFrame>,
+        _: &OverlayOptions,
+        _: &mut OverlayStats,
+    ) -> Result<Outcome> {
         Err(OverlayError::Unsupported)
     }
 }
@@ -137,7 +157,11 @@ mod imp {
     pub fn capture_all() -> Result<Vec<MonitorFrame>> {
         crate::capture::capture_all()
     }
-    pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result<Outcome> {
-        crate::overlay::select_region(frames, opts)
+    pub fn select_region(
+        frames: Vec<MonitorFrame>,
+        opts: &OverlayOptions,
+        stats: &mut OverlayStats,
+    ) -> Result<Outcome> {
+        crate::overlay::select_region(frames, opts, stats)
     }
 }

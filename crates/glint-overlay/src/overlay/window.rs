@@ -46,7 +46,7 @@ use super::render::{Drawn, Gfx, Renderer};
 use super::{build_selection, snap, validate_frames};
 use crate::geom::{Point, Rect};
 use crate::win::{last_error, ThreadDpiScope};
-use crate::{MonitorFrame, Outcome, OverlayError, OverlayOptions, Result};
+use crate::{MonitorFrame, Outcome, OverlayError, OverlayOptions, OverlayStats, Result};
 
 const CLASS_NAME: PCWSTR = w!("GlintSelectionOverlay");
 /// Consecutive `D2DERR_RECREATE_TARGET`s tolerated before giving up.
@@ -59,7 +59,11 @@ thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
 }
 
-pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result<Outcome> {
+pub fn select_region(
+    frames: Vec<MonitorFrame>,
+    opts: &OverlayOptions,
+    stats: &mut OverlayStats,
+) -> Result<Outcome> {
     validate_frames(&frames)?;
     let _busy = Busy::acquire()?;
     let _dpi = ThreadDpiScope::per_monitor_v2();
@@ -126,6 +130,7 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
     windows.show_and_paint(&monitors);
     if !app_done() {
         windows.uncloak();
+        stats.shown_at = Some(std::time::Instant::now());
         if let Some(&hwnd) = windows.0.get(focus) {
             force_foreground(hwnd);
         }

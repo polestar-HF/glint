@@ -1,10 +1,12 @@
 <script lang="ts">
   import { flip } from 'svelte/animate';
   import { t } from '../../lib/i18n.svelte';
+  import { engineFromPreset, isUserAdded, missingFields, type FieldKey, type Preset } from '../../lib/engines';
   import { LANGS, SOURCE_LANGS, langName } from '../../lib/langs';
   import Group from '../controls/Group.svelte';
   import Row from '../controls/Row.svelte';
   import Select from '../controls/Select.svelte';
+  import ServicePicker from '../controls/ServicePicker.svelte';
   import { store } from '../store.svelte';
   import EngineRow from './EngineRow.svelte';
 
@@ -17,6 +19,24 @@
 
   let dragId = $state<string | null>(null);
   let listEl = $state<HTMLDivElement>();
+  let addRow = $state<HTMLDivElement>();
+  /** The row just added from a preset, and the field its panel should focus. */
+  let justAdded = $state<{ id: string; focus: FieldKey | null } | null>(null);
+
+  function addService(p: Preset) {
+    const e = engineFromPreset(p, c.translate.engines.map((x) => x.id));
+    c.translate.engines.push(e);
+    // "自定义" still needs its endpoint; otherwise the first empty required field (key, model).
+    const focus: FieldKey | null = p.custom ? 'baseUrl' : (missingFields(e)[0] ?? null);
+    justAdded = { id: e.id, focus };
+  }
+
+  function remove(id: string) {
+    const i = c.translate.engines.findIndex((e) => e.id === id);
+    if (i < 0 || !isUserAdded(c.translate.engines[i])) return;
+    c.translate.engines.splice(i, 1);
+    requestAnimationFrame(() => addRow?.querySelector<HTMLElement>('.add')?.focus());
+  }
 
   function move(from: number, to: number) {
     const list = c.translate.engines;
@@ -92,9 +112,15 @@
           last={i === engines.length - 1}
           onmove={(d) => moveBy(e.id, d)}
           ongrab={(ev) => grab(ev, e.id)}
+          autofocus={justAdded?.id === e.id ? justAdded.focus : undefined}
+          onopened={() => (justAdded = null)}
+          ondelete={isUserAdded(e) ? () => remove(e.id) : undefined}
         />
       </div>
     {/each}
+  </div>
+  <div class="add-row" bind:this={addRow}>
+    <ServicePicker onpick={addService} />
   </div>
 </Group>
 
@@ -104,5 +130,11 @@
   }
   .slot + .slot {
     border-top: 1px solid var(--stroke-divider);
+  }
+  .add-row {
+    display: flex;
+    align-items: center;
+    min-height: 48px;
+    padding: 8px 16px 8px 4px;
   }
 </style>

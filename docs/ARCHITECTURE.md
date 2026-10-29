@@ -226,3 +226,49 @@ Items 1, 3, 4 and 5 are optional for the UI: it detects a missing command or fie
 3. **Model directory:** `det.onnx` and `rec.onnx` (PP-OCRv6 small from the `rapidocr==3.10.0` wheel, renamed), optional `cls.onnx` (only read with `PaddleOptions::use_angle_cls`), optional `dict.txt` (only used if `rec.onnx` has no embedded `character` metadata; the v6 model has one).
 4. **Result semantics:** `OcrResult.lines` are in reading order with normalized text; `text` joins paragraphs (or, with `merge_lines = false`, lines) with a single `\n`; `detected_lang` is one of `zh ja ko en fr de es pt it vi ru th ar`, or `None` when the text has no letters; `engine` is `"paddle"` or `"windows"`. `OcrOptions::lang_hint` is ignored by `PaddleOcr` (the multilingual model needs none) and selects the language pack for `WindowsOcr`. `WindowsOcr` reports `confidence = 1.0` (the API gives none) and must be called from a worker thread, not an STA/UI thread.
 5. **Additive items:** `PaddleOptions`, `Timings` and `PaddleOcr::recognize_timed`, `WindowsOcr::{available_languages, language}`, the `postprocess` module, and `glint_ocr::trim_process_memory()`. Call the last one after dropping the engine on idle unload: glibc and Windows keep freed pages in the process until trimmed (measured on Linux: 85 MB resident after drop, 40 MB after trimming).
+
+## v0.2 contract (lead)
+
+### Multiple LLM services
+- `translate.engines` may contain any number of `kind: "openai"` / `kind: "anthropic"` entries. Each entry's `id` must be unique.
+  - User-added entries use `id = "<kind>-<6 random [a-z0-9]>"`.
+  - User-added entries always set `name`.
+  - The built-in entries (`google`, `bing`, `claude`, `openai`, `deepl`, `youdao`, `baidu`) cannot be deleted. User-added entries can be deleted.
+- Backend rules:
+  - **openai**
+    - `apiKey` is required only for the official endpoint (no `baseUrl`, or `api.openai.com`).
+    - With a custom `baseUrl`, `model` is required. A missing model is a `Config` error.
+    - A key may be empty, e.g. for Ollama or LM Studio.
+  - **anthropic**
+    - `apiKey` is optional only when `baseUrl` is set.
+    - `model` defaults to `claude-haiku-5-5`.
+- `merge_new_engines` only adds a *kind* that is missing entirely, so user-added entries are never touched.
+
+### Performance data
+- `session:start` gains `timings?: { hotkeyToOverlayMs, captureMs, overlayMs }`.
+  - `overlayMs` is the time from the end of capture to the overlay becoming visible.
+  - `hotkeyToOverlayMs` is the time from the hotkey to the overlay being visible.
+  - It is absent for `retranslate`.
+- `ocr:result` gains `timings: { loadMs?, detMs?, recMs? }`.
+  - `loadMs` is present only when the model was loaded for this capture (cold start).
+  - `detMs` and `recMs` are present for PaddleOCR only.
+  - `elapsedMs` (total) is unchanged.
+- `tr:done` gains `firstTokenMs?`: the time from engine start to the first delta. It is present when at least one delta arrived.
+- The snapshot mirrors these fields:
+  - `SessionSnapshot.timings?`
+  - `ocr.result.timings`
+  - `translations[].firstTokenMs?`
+- Config: `ui.showTimings: bool` (default `false`). When true, the popup shows one quiet meta line with these timings.
+- New commands:
+  - `get_perf_stats() -> PerfStats`
+  - `reset_perf_stats() -> ()`
+  - `get_diagnostics() -> String`: a plain-text report of stats and system info. The UI copies it with `copy_text`.
+- `PerfStats` is camelCase:
+  ```
+  { sessions: u32, since: String /*RFC3339*/,
+    metrics: [{ key: "hotkeyToOverlay"|"capture"|"overlay"|"ocr"|"ocrCold"|"ocrLoad"|"det"|"rec", n: u32, p50: f64, p90: f64, max: f64 }],
+    engines: [{ engineId, engineName, n: u32, errors: u32, p50: f64, p90: f64, firstTokenP50?: f64 }],
+    system: { app: String, os: String, cpuThreads: u32, webview: String, monitors: [{ width, height, scale }] } }
+  ```
+  - `metrics` only lists keys with `n > 0`. All times are in milliseconds.
+  - Samples are the last 300 sessions, persisted in `%APPDATA%\Glint\perf.json`.

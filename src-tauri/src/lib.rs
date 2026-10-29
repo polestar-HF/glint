@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod hotkeys;
 mod ocr_service;
+mod perf;
 mod pipeline;
 mod popup;
 mod session;
@@ -30,6 +31,7 @@ pub struct AppState {
     pub ocr: Arc<OcrService>,
     pub http: reqwest::Client,
     pub translate_cache: glint_translate::Cache,
+    pub perf: perf::Perf,
     pub capturing: AtomicBool,
     pub overlay_tx: std::sync::mpsc::Sender<pipeline::OverlayJob>,
     pub popup_pinned: AtomicBool,
@@ -143,6 +145,7 @@ pub fn run() {
                 ocr: Arc::new(OcrService::new(model_dir, ort_dylib)),
                 http,
                 translate_cache: glint_translate::Cache::default(),
+                perf: perf::Perf::load(config_dir.join("perf.json")),
                 capturing: AtomicBool::new(false),
                 overlay_tx,
                 popup_pinned: AtomicBool::new(false),
@@ -192,6 +195,9 @@ pub fn run() {
             commands::popup_resize,
             commands::start_capture,
             commands::open_settings,
+            commands::get_perf_stats,
+            commands::reset_perf_stats,
+            commands::get_diagnostics,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build Glint")

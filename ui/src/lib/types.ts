@@ -33,6 +33,8 @@ export interface Config {
     accent: string;
     closeOnBlur: boolean;
     popupIdleDestroySecs: number;
+    /** v0.2: show capture / OCR / first-token timings in the popup. */
+    showTimings?: boolean;
   };
   overlay: { snapWindows: boolean; magnifier: boolean };
 }
@@ -45,11 +47,27 @@ export interface OcrLine {
 
 // ── Events ──────────────────────────────────────────────────────────────────
 
+/** v0.2 performance data. All values in milliseconds. */
+export interface CaptureTimings {
+  hotkeyToOverlayMs?: number;
+  captureMs?: number;
+  /** End of capture → overlay visible. */
+  overlayMs?: number;
+}
+export interface OcrTimings {
+  /** Present only when the model was loaded for this capture (cold start). */
+  loadMs?: number;
+  detMs?: number;
+  recMs?: number;
+}
+
 export interface SessionStart {
   sessionId: number;
   mode: Mode;
   sourceLang: string;
   targetLang: string;
+  /** v0.2; absent for `retranslate`. */
+  timings?: CaptureTimings | null;
 }
 export interface OcrResultEvent {
   sessionId: number;
@@ -58,6 +76,8 @@ export interface OcrResultEvent {
   detectedLang: string | null;
   elapsedMs: number;
   engine: string;
+  /** v0.2. */
+  timings?: OcrTimings | null;
 }
 export interface OcrErrorEvent {
   sessionId: number;
@@ -80,6 +100,8 @@ export interface TrDone {
   engineId: string;
   text: string;
   elapsedMs: number;
+  /** v0.2: engine start → first delta; present when at least one delta arrived. */
+  firstTokenMs?: number | null;
 }
 export interface TrError {
   sessionId: number;
@@ -112,6 +134,8 @@ export interface SnapshotTranslation {
   elapsedMs?: number | null;
   /** Optional (contract change request #3): number of deltas already folded into `text`. */
   deltaCount?: number;
+  /** v0.2. */
+  firstTokenMs?: number | null;
 }
 
 export interface SessionSnapshot {
@@ -125,6 +149,44 @@ export interface SessionSnapshot {
     message?: string | null;
   };
   translations: SnapshotTranslation[];
+  /** v0.2. */
+  timings?: CaptureTimings | null;
+}
+
+// ── Performance stats (v0.2) ────────────────────────────────────────────────
+
+export type PerfMetricKey = 'hotkeyToOverlay' | 'capture' | 'overlay' | 'ocr' | 'ocrCold' | 'ocrLoad' | 'det' | 'rec';
+
+export interface PerfMetric {
+  key: PerfMetricKey;
+  n: number;
+  p50: number;
+  p90: number;
+  max: number;
+}
+export interface PerfEngine {
+  engineId: string;
+  engineName: string;
+  n: number;
+  errors: number;
+  p50: number;
+  p90: number;
+  firstTokenP50?: number | null;
+}
+export interface PerfStats {
+  sessions: number;
+  /** RFC 3339. */
+  since: string;
+  /** Only keys with n > 0. */
+  metrics: PerfMetric[];
+  engines: PerfEngine[];
+  system: {
+    app: string;
+    os: string;
+    cpuThreads: number;
+    webview: string;
+    monitors: Array<{ width: number; height: number; scale: number }>;
+  };
 }
 
 export type HotkeyStatus = 'ok' | 'in_use' | 'invalid';

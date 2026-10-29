@@ -8,12 +8,14 @@
   interface Props {
     r: ResultView;
     primary: boolean;
+    /** v0.2: add the first-token time to the meta. */
+    showTimings?: boolean;
     lang: string;
     oncopy: (text: string) => void;
     onretry: () => void;
     ontoggle: () => void;
   }
-  let { r, primary, lang, oncopy, onretry, ontoggle }: Props = $props();
+  let { r, primary, showTimings = false, lang, oncopy, onretry, ontoggle }: Props = $props();
 
   const hasText = $derived(r.text.length > 0);
   const live = $derived(r.status === 'streaming' || (r.status === 'pending' && hasText));
@@ -23,7 +25,9 @@
   <div class="sec-head">
     <span class="sec-label">{r.engineName}</span>
     {#if r.status === 'done' && r.elapsedMs != null}
-      <span class="meta tnum">{fmtMs(r.elapsedMs)}</span>
+      <span class="meta tnum">
+        {#if showTimings && r.firstTokenMs != null}{t('tm.first')} {fmtMs(r.firstTokenMs)} · {/if}{fmtMs(r.elapsedMs)}
+      </span>
     {/if}
     {#if r.collapsed && hasText}
       <button class="sec-peek" lang={htmlLang(lang)} onclick={ontoggle}>{r.text}</button>

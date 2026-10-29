@@ -215,7 +215,7 @@ pub fn supports_mica() -> bool {
 }
 
 #[cfg(windows)]
-fn windows_build() -> u32 {
+pub fn windows_build() -> u32 {
     // RtlGetVersion is not subject to manifest-based version lies.
     use windows::Wdk::System::SystemServices::RtlGetVersion;
     use windows::Win32::System::SystemInformation::OSVERSIONINFOW;

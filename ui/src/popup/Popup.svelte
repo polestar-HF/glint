@@ -2,7 +2,7 @@
   import { onMount } from 'svelte';
   import Icon from '../lib/Icon.svelte';
   import { api, on, type Unlisten } from '../lib/ipc';
-  import { fmtMs, setLocale, t } from '../lib/i18n.svelte';
+  import { fmtMs, i18n, setLocale, t } from '../lib/i18n.svelte';
   import { htmlLang, langName } from '../lib/langs';
   import { engineName, normalizeConfig } from '../lib/engines';
   import { applyUi } from '../lib/theme';
@@ -39,6 +39,28 @@
     if (s.ocrStatus !== 'done') return '';
     if (s.edited) return t('popup.edited');
     return [s.ocrEngine, fmtMs(s.ocrElapsed)].filter(Boolean).join(' · ');
+  });
+  // v0.2: one quiet line of timings, e.g.
+  // 截图 21 ms · 选区 34 ms · 识别 142 ms（检测 48 / 识别 81）· 首字 610 ms. Absent parts are left out.
+  const showTimings = $derived(!!config?.ui.showTimings);
+  const timingParts = $derived.by(() => {
+    if (!showTimings) return [];
+    const out: string[] = [];
+    const ct = s.captureTimings;
+    if (ct?.captureMs != null) out.push(`${t('tm.capture')} ${fmtMs(ct.captureMs)}`);
+    if (ct?.overlayMs != null) out.push(`${t('tm.overlay')} ${fmtMs(ct.overlayMs)}`);
+    if (s.ocrStatus === 'done' && s.ocrElapsed != null) {
+      const ot = s.ocrTimings;
+      const inner: string[] = [];
+      if (ot?.loadMs != null) inner.push(`${t('tm.load')} ${Math.round(ot.loadMs)}`);
+      if (ot?.detMs != null) inner.push(`${t('tm.det')} ${Math.round(ot.detMs)}`);
+      if (ot?.recMs != null) inner.push(`${t('tm.rec')} ${Math.round(ot.recMs)}`);
+      const detail = inner.length ? (i18n.locale === 'zh-CN' ? `（${inner.join(' / ')}）` : ` (${inner.join(' / ')})`) : '';
+      out.push(`${t('tm.ocr')} ${fmtMs(s.ocrElapsed)}${detail}`);
+    }
+    const first = s.mode === 'translate' ? s.results[0]?.firstTokenMs : null;
+    if (first != null) out.push(`${t('tm.first')} ${fmtMs(first)}`);
+    return out;
   });
   const ocrMeta = $derived.by(() => {
     if (s.ocrStatus === 'pending') return t('popup.recognizing');
@@ -220,6 +242,7 @@
     r.text = '';
     r.message = '';
     r.deltas = 0;
+    r.firstTokenMs = null;
     try {
       await api.retranslateEngine(s.id, r.engineId, s.submittedText || s.text, s.sourceLang, s.targetLang);
     } catch {
@@ -265,6 +288,16 @@
 </script>
 
 <svelte:window onkeydown={onKey} />
+
+{#snippet timingLine()}
+  {#if timingParts.length}
+    <div class="timings tnum">
+      {#each timingParts as part, i (i)}
+        {#if i}<span class="timings-sep" aria-hidden="true">·</span>{/if}<span>{part}</span>
+      {/each}
+    </div>
+  {/if}
+{/snippet}
 
 {#snippet sourceBody(lines: number[])}
   {#if s.ocrStatus === 'pending'}
@@ -337,6 +370,7 @@
       {#if s.mode === 'ocr'}
         <section class="sec ocr-sec">
           {@render sourceBody([100, 92, 54])}
+          {@render timingLine()}
         </section>
       {:else}
         <section class="sec source" class:collapsed={s.sourceCollapsed}>
@@ -365,6 +399,7 @@
               </button>
             </span>
           </div>
+          {@render timingLine()}
           {#if !s.sourceCollapsed}
             {@render sourceBody([100, 64])}
           {/if}
@@ -374,6 +409,7 @@
           <ResultSection
             {r}
             primary={i === 0}
+            {showTimings}
             lang={s.targetLang}
             oncopy={copy}
             onretry={() => retry(r)}

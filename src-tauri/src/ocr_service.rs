@@ -19,6 +19,8 @@ pub struct OcrService {
     slot: Mutex<Option<Loaded>>,
     /// Serializes loads so a preload and a real request never load twice.
     load_lock: Mutex<()>,
+    /// When the last load finished and how long it took (performance stats).
+    last_load: Mutex<Option<(Instant, Duration)>>,
 }
 
 impl OcrService {
@@ -28,6 +30,7 @@ impl OcrService {
             ort_dylib,
             slot: Mutex::new(None),
             load_lock: Mutex::new(()),
+            last_load: Mutex::new(None),
         }
     }
 
@@ -42,7 +45,9 @@ impl OcrService {
         }
         let started = Instant::now();
         let engine = self.load(kind)?;
-        log::info!("ocr engine '{kind}' loaded in {:?}", started.elapsed());
+        let took = started.elapsed();
+        log::info!("ocr engine '{kind}' loaded in {took:?}");
+        *self.last_load.lock().unwrap_or_else(|p| p.into_inner()) = Some((Instant::now(), took));
         *self.slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(Loaded {
             kind: kind.to_string(),
             engine: engine.clone(),
@@ -60,6 +65,13 @@ impl OcrService {
                 log::warn!("ocr preload failed: {e:#}");
             }
         });
+    }
+
+    /// The load time, if the engine was (re)loaded after `since` — i.e. this capture paid for
+    /// a cold start, even when the load ran in the hotkey-time preload.
+    pub fn loaded_since(&self, since: Instant) -> Option<Duration> {
+        let last = *self.last_load.lock().unwrap_or_else(|p| p.into_inner());
+        last.filter(|(at, _)| *at >= since).map(|(_, took)| took)
     }
 
     /// Drop the engine if unused for `idle`. Called periodically.

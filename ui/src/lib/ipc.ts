@@ -11,6 +11,7 @@ import type {
   EventName,
   HotkeyStatus,
   Mode,
+  PerfStats,
   SessionSnapshot,
   ThemeChoice,
 } from './types';
@@ -75,6 +76,11 @@ export const api = {
   checkHotkey: (accelerator: string) => call<HotkeyStatus>('check_hotkey', { accelerator }),
   /** Contract change request #5. */
   suspendHotkeys: (suspended: boolean) => call<void>('hotkeys_suspend', { suspended }),
+  /** v0.2 performance data. */
+  getPerfStats: () => call<PerfStats>('get_perf_stats'),
+  resetPerfStats: () => call<void>('reset_perf_stats'),
+  /** Plain-text report of stats and system info; the UI copies it with `copyText`. */
+  getDiagnostics: () => call<string>('get_diagnostics'),
   /** Needs tauri-plugin-opener with `opener:allow-open-url`. */
   openUrl: (url: string) =>
     inTauri ? call<void>('plugin:opener|open_url', { url }) : Promise.resolve(void window.open(url, '_blank')),

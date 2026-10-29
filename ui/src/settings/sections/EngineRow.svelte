@@ -1,8 +1,19 @@
 <script lang="ts">
+  import { tick, untrack } from 'svelte';
   import Icon from '../../lib/Icon.svelte';
   import { api } from '../../lib/ipc';
-  import { fmtMs, t } from '../../lib/i18n.svelte';
-  import { engineName, isConfigured, kindSpec } from '../../lib/engines';
+  import { fmtMs, t, type MessageKey } from '../../lib/i18n.svelte';
+  import {
+    engineName,
+    hostOf,
+    isUserAdded,
+    kindSpec,
+    missingFields,
+    missingHint,
+    presetForUrl,
+    protocolLabel,
+    type FieldKey,
+  } from '../../lib/engines';
   import type { EngineConfig } from '../../lib/types';
   import Toggle from '../controls/Toggle.svelte';
 
@@ -14,13 +25,25 @@
     last: boolean;
     onmove: (delta: -1 | 1) => void;
     ongrab: (ev: PointerEvent) => void;
+    /** Set right after the row was added: open the panel and focus this field (null: the name). */
+    autofocus?: FieldKey | null;
+    onopened?: () => void;
+    /** User-added rows only. */
+    ondelete?: () => void;
   }
-  let { e, primary, dragging, first, last, onmove, ongrab }: Props = $props();
+  let { e, primary, dragging, first, last, onmove, ongrab, autofocus, onopened, ondelete }: Props = $props();
 
   const spec = $derived(kindSpec(e.kind));
   const name = $derived(engineName(e));
-  const configured = $derived(isConfigured(e));
+  const added = $derived(isUserAdded(e));
+  const missing = $derived(missingFields(e));
+  const hint = $derived(spec.free ? '' : missingHint(e));
+  const customBase = $derived(e.kind === 'openai' && !!e.baseUrl?.trim() && !e.baseUrl.includes('api.openai.com'));
+
   let open = $state(false);
+  let confirming = $state(false);
+  let rowEl = $state<HTMLDivElement>();
+  let cancelBtn = $state<HTMLButtonElement>();
   let reveal = $state<Record<string, boolean>>({});
   let test = $state<{ state: 'idle' | 'running' | 'ok' | 'error'; text: string; ms: number }>({
     state: 'idle',
@@ -29,12 +52,28 @@
   });
   const uid = $derived(`eng-${e.id}`);
 
+  /** Secondary line: endpoint for user-added services, model / host for built-ins. */
   const sub = $derived.by(() => {
     if (spec.free) return t('tr.free');
-    if (!configured) return t('tr.needsKey');
-    const host = e.baseUrl ? e.baseUrl.replace(/^https?:\/\//, '').replace(/\/.*$/, '') : '';
-    return [e.model, e.kind === 'openai' ? host : ''].filter(Boolean).join(' · ') || t('tr.configure');
+    if (added) {
+      const host = hostOf(e.baseUrl) || (e.kind === 'anthropic' ? 'api.anthropic.com' : e.kind === 'openai' ? 'api.openai.com' : '');
+      return [host, e.model].filter(Boolean).join(' · ');
+    }
+    if (hint) return '';
+    return [e.model, e.kind === 'openai' ? hostOf(e.baseUrl) : ''].filter(Boolean).join(' · ') || t('tr.configure');
   });
+
+  function placeholder(key: FieldKey, fallback?: string): string {
+    if (key === 'model' && customBase) return t('field.modelPh');
+    return fallback ?? '';
+  }
+
+  function fieldHint(key: FieldKey, fallback?: MessageKey): MessageKey | null {
+    // The "OpenAI-compatible, e.g. Ollama" note only helps while the endpoint is unknown.
+    if (key === 'baseUrl' && e.kind === 'openai') return presetForUrl(e.baseUrl ?? '') ? null : (fallback ?? null);
+    if (key === 'baseUrl' && e.kind === 'anthropic') return 'hint.anthropicBase';
+    return fallback ?? null;
+  }
 
   async function runTest() {
     test = { state: 'running', text: '', ms: 0 };
@@ -57,12 +96,35 @@
     }
   }
 
-  function setField(key: 'name' | 'apiKey' | 'apiSecret' | 'baseUrl' | 'model' | 'prompt', v: string) {
+  function setField(key: FieldKey, v: string) {
+    // User-added services always keep a name (v0.2 contract); an emptied field is restored on blur.
+    if (key === 'name' && added && !v.trim()) return;
     e[key] = v.trim() === '' ? null : v;
+  }
+
+  // Freshly added: open the panel and put the caret where the user has to type next.
+  $effect(() => {
+    if (autofocus === undefined) return;
+    const field = autofocus;
+    untrack(() => {
+      open = true;
+      void tick().then(() => {
+        const target = document.getElementById(field ? `${uid}-${field}` : `${uid}-name-f`);
+        target?.focus({ preventScroll: true });
+        rowEl?.scrollIntoView({ block: 'nearest' });
+        onopened?.();
+      });
+    });
+  });
+
+  async function askDelete() {
+    confirming = true;
+    await tick();
+    cancelBtn?.focus();
   }
 </script>
 
-<div class="engine" class:dragging class:disabled={!e.enabled} data-engine-row={e.id}>
+<div class="engine" class:dragging class:disabled={!e.enabled} data-engine-row={e.id} bind:this={rowEl}>
   <div class="engine-row">
     <button
       class="grip"
@@ -76,10 +138,17 @@
 
     <div class="engine-text">
       <div class="engine-name" id="{uid}-name">
-        <span>{name}</span>
+        <span class="engine-title">{name}</span>
+        {#if added}<span class="proto">{protocolLabel(e.kind)}</span>{/if}
         {#if primary}<span class="primary-mark">{t('tr.primary')}</span>{/if}
       </div>
-      <div class="engine-sub" class:warn={e.enabled && !configured}>{sub}</div>
+      <div class="engine-sub">
+        {#if sub}<span class="sub-text">{sub}</span>{/if}
+        {#if hint}
+          {#if sub}<span class="sub-sep" aria-hidden="true">·</span>{/if}
+          <span class:warn={e.enabled}>{hint}</span>
+        {/if}
+      </div>
       {#if test.state === 'ok' || test.state === 'error'}
         <div class="test-result" class:error={test.state === 'error'} role="status">
           <Icon name={test.state === 'ok' ? 'check' : 'alert'} />
@@ -118,11 +187,16 @@
             value={e.name ?? ''}
             placeholder={engineName({ kind: e.kind, name: null })}
             oninput={(ev) => setField('name', ev.currentTarget.value)}
+            onblur={(ev) => {
+              if (added && !ev.currentTarget.value.trim()) ev.currentTarget.value = e.name ?? '';
+            }}
           />
         </div>
         {#each spec.fields as f (f.key)}
+          {@const need = missing.includes(f.key)}
+          {@const h = fieldHint(f.key, f.hint)}
           <label class="f-label" for="{uid}-{f.key}">
-            {t(f.label)}{#if f.optional}<span class="f-opt">{t('field.optional')}</span>{/if}
+            {t(f.label)}{#if f.optional && !need}<span class="f-opt">{t('field.optional')}</span>{/if}
           </label>
           <div class="f-input">
             {#if f.multiline}
@@ -140,11 +214,13 @@
                   id="{uid}-{f.key}"
                   class="field"
                   class:mono={f.secret || f.key === 'baseUrl' || f.key === 'model'}
+                  class:missing={need}
+                  aria-invalid={need || undefined}
                   type={f.secret && !reveal[f.key] ? 'password' : 'text'}
                   autocomplete="off"
                   spellcheck="false"
                   value={e[f.key] ?? ''}
-                  placeholder={f.placeholder ?? ''}
+                  placeholder={placeholder(f.key, f.placeholder)}
                   oninput={(ev) => setField(f.key, ev.currentTarget.value)}
                 />
                 {#if f.secret}
@@ -160,10 +236,31 @@
                 {/if}
               </div>
             {/if}
-            {#if f.hint}<p class="f-hint">{t(f.hint)}</p>{/if}
+            {#if h}<p class="f-hint">{t(h)}</p>{/if}
           </div>
         {/each}
       </div>
+
+      {#if added && ondelete}
+        <!-- svelte-ignore a11y_no_static_element_interactions -->
+        <div
+          class="panel-foot"
+          onkeydown={(ev) => {
+            if (confirming && ev.key === 'Escape') {
+              ev.stopPropagation();
+              confirming = false;
+            }
+          }}
+        >
+          {#if confirming}
+            <span class="confirm-text" role="alert">{t('tr.deleteConfirm', { name })}</span>
+            <button class="btn sm danger" onclick={ondelete}>{t('tr.delete')}</button>
+            <button class="btn sm subtle" bind:this={cancelBtn} onclick={() => (confirming = false)}>{t('tr.cancel')}</button>
+          {:else}
+            <button class="btn sm subtle remove" onclick={askDelete}><Icon name="trash" />{t('tr.deleteService')}</button>
+          {/if}
+        </div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -225,16 +322,36 @@
     font-size: var(--fs-caption);
     color: var(--accent);
   }
-  .engine-sub {
-    font-family: var(--font-small);
-    font-size: var(--fs-caption);
-    line-height: 16px;
-    color: var(--text-3);
+  .engine-title {
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .engine-sub.warn {
+  .proto {
+    flex: none;
+    font-family: var(--font-small);
+    font-size: var(--fs-caption);
+    color: var(--text-3);
+  }
+  .primary-mark {
+    flex: none;
+  }
+  .engine-sub {
+    display: flex;
+    gap: 6px;
+    font-family: var(--font-small);
+    font-size: var(--fs-caption);
+    line-height: 16px;
+    color: var(--text-3);
+    white-space: nowrap;
+  }
+  .sub-text {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .engine-sub .warn {
     color: var(--caution);
   }
   .test-result {
@@ -328,6 +445,31 @@
     position: absolute;
     top: 2px;
     right: 2px;
+  }
+  /* A required field that is still empty: the bottom edge picks up the caution color,
+     matching the hint on the row. Focus keeps the accent. */
+  .field.missing:not(:focus) {
+    border-bottom-color: var(--caution);
+  }
+  .panel-foot {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-height: 28px;
+    margin-top: 12px;
+  }
+  .confirm-text {
+    margin-right: 4px;
+    font-size: 13px;
+    color: var(--text-1);
+  }
+  .remove {
+    gap: 6px;
+    color: var(--critical);
+  }
+  .btn.danger {
+    color: var(--critical);
   }
   .f-hint {
     margin: 4px 0 0;
