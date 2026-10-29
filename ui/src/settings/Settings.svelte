@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount, untrack, type Component } from 'svelte';
+  import { getCurrentWindow } from '@tauri-apps/api/window';
   import Icon from '../lib/Icon.svelte';
   import { inTauri } from '../lib/ipc';
   import { t, type MessageKey } from '../lib/i18n.svelte';
@@ -62,8 +63,15 @@
 
   onMount(() => {
     load().catch((e) => console.error(e));
-    window.addEventListener('beforeunload', flushNow);
-    return () => window.removeEventListener('beforeunload', flushNow);
+    // A native window close does not reliably fire `beforeunload`; Tauri's close-requested
+    // handler is awaited before the window is destroyed, so a pending save always lands.
+    if (inTauri) {
+      const unlisten = getCurrentWindow().onCloseRequested(() => flushNow());
+      return () => void unlisten.then((f) => f());
+    }
+    const onUnload = () => void flushNow();
+    window.addEventListener('beforeunload', onUnload);
+    return () => window.removeEventListener('beforeunload', onUnload);
   });
 
   // Deep-track the config; every change is applied and saved (debounced).

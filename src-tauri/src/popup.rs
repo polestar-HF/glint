@@ -91,12 +91,10 @@ pub fn show_at(app: &AppHandle, anchor: Anchor) {
             return;
         }
     };
-    let height = win
-        .inner_size()
-        .map(|s| s.height as f64)
-        .unwrap_or(INITIAL_HEIGHT * anchor.scale)
-        .max(INITIAL_HEIGHT * anchor.scale);
-    let (x, y, w, h) = place(anchor, WIDTH * anchor.scale, height);
+    // Start every session at the compact "recognizing" height; the page grows the window via
+    // `popup_resize`. Reusing the last (possibly tall) height would place the popup above the
+    // selection and then shrink it away from it.
+    let (x, y, w, h) = place(anchor, WIDTH * anchor.scale, INITIAL_HEIGHT * anchor.scale);
     // Position first: moving across monitors may trigger a DPI rescale that we then override.
     let _ = win.set_position(PhysicalPosition::new(x, y));
     let _ = win.set_size(PhysicalSize::new(w, h));

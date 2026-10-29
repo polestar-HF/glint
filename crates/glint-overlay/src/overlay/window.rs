@@ -149,7 +149,16 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
     drop(surfaces);
     drop(windows);
     drop(class);
-    restore_foreground(previous_foreground);
+    // When a popup follows (translate / OCR), the app gives it focus right away; handing the
+    // foreground back to the previous window first would make that `SetForegroundWindow` hit
+    // the foreground lock, and a popup that never had focus never hides on blur.
+    let popup_follows = matches!(
+        finish,
+        Some(Finish::Select { action, .. }) if action != crate::Action::CopyText
+    );
+    if !popup_follows {
+        restore_foreground(previous_foreground);
+    }
 
     let error = match exit {
         LoopExit::Done => error,

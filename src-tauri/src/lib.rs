@@ -158,14 +158,22 @@ pub fn run() {
             tray::create(&handle)?;
             if let Err(e) = hotkeys::register(&handle, &cfg.hotkeys) {
                 log::warn!("{e:#}");
+                tray::refresh(&handle, Some(&e.to_string()));
             }
             spawn_idle_unloader(handle.clone());
 
             // First launch (no config yet) opens settings so the user sees the app exists.
-            let first_run = !app.state::<AppState>().config_path.exists();
+            let state = app.state::<AppState>();
+            let first_run = !state.config_path.exists();
             let background = std::env::args().any(|a| a == "--background");
-            if first_run && !background {
-                settings::open(&handle);
+            if first_run {
+                // Persist defaults so this only happens once.
+                if let Err(e) = config::save(&state.config_path, &cfg) {
+                    log::warn!("could not write default config: {e}");
+                }
+                if !background {
+                    settings::open(&handle);
+                }
             }
             Ok(())
         })

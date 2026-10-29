@@ -24,7 +24,7 @@ npm ci --prefix ui             # UI dependencies
 cargo tauri dev                # Vite dev server + app, from the repo root
 ```
 
-`cargo tauri dev` runs `beforeDevCommand` (`npm run dev` in `ui/`, Vite on :5173).
+`cargo tauri dev` runs `beforeDevCommand` (`npm run dev` in `ui/`, Vite on :1420).
 `cargo tauri build --bundles nsis` produces a local installer in `target/release/bundle/nsis/`
 (the first run downloads NSIS).
 

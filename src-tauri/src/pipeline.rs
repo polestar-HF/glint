@@ -213,7 +213,10 @@ fn run_session(app: &AppHandle, sel: Selection) {
             .await;
         }
     });
-    state.replace_session_task(task);
+    // A silent capture has no popup session: it must not abort the one the popup shows.
+    if !silent {
+        state.replace_session_task(task);
+    }
 }
 
 /// Start a translation-only session (popup edits, language switch).

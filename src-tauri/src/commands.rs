@@ -3,14 +3,14 @@
 use std::sync::atomic::Ordering;
 
 use glint_translate::{EngineConfig, TranslateRequest};
-use tauri::{AppHandle, Emitter, Manager, State};
+use tauri::{AppHandle, Emitter, State};
 use tauri_plugin_autostart::ManagerExt;
 use tauri_plugin_clipboard_manager::ClipboardExt;
 
 use crate::config::{self, Config};
 use crate::pipeline::{self, CaptureMode};
 use crate::session::SessionSnapshot;
-use crate::{hotkeys, popup, settings, AppState};
+use crate::{hotkeys, popup, settings, tray, AppState};
 
 type CmdResult<T> = Result<T, String>;
 
@@ -27,7 +27,9 @@ pub fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -
 
     // A conflicting hotkey is reported to the caller, but must not skip the rest of the save.
     let hotkeys_result = if previous.hotkeys != config.hotkeys {
-        hotkeys::register(&app, &config.hotkeys).map_err(|e| e.to_string())
+        let res = hotkeys::register(&app, &config.hotkeys).map_err(|e| e.to_string());
+        tray::refresh(&app, res.as_ref().err().map(String::as_str));
+        res
     } else {
         Ok(())
     };
@@ -120,15 +122,22 @@ pub fn popup_resize(app: AppHandle, height: f64) {
 }
 
 #[tauri::command]
-pub fn start_capture(app: AppHandle, mode: String) {
+pub fn start_capture(app: AppHandle, window: tauri::Window, mode: String) {
     let mode = if mode == "ocr" {
         CaptureMode::Ocr
     } else {
         CaptureMode::Translate
     };
-    // Let the invoking window (settings) get out of the way of the frozen frame.
-    if let Some(w) = app.get_webview_window(settings::LABEL) {
-        let _ = w.minimize();
+    // When Settings asked, get it out of the frozen frame (the popup hides itself in
+    // `pipeline::start_capture`). The minimize animation needs a moment before BitBlt.
+    if window.label() == settings::LABEL {
+        let _ = window.minimize();
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(250)).await;
+            pipeline::start_capture(&app, mode);
+        });
+        return;
     }
     pipeline::start_capture(&app, mode);
 }

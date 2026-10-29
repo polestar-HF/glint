@@ -31,7 +31,8 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = true
-panic = "abort"
+# Keep unwinding: a panic inside OCR/ONNX or a translation engine must surface as an error
+# (spawn_blocking JoinError, overlay catch_unwind), not take the whole tray app down.
 
 # Keep image/ONNX math fast even in debug builds.
 [profile.dev.package."*"]

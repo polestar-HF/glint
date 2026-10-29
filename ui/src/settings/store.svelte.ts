@@ -67,9 +67,8 @@ async function flush() {
 }
 
 /** Save immediately (window closing). */
-export function flushNow() {
-  if (timer) {
-    clearTimeout(timer);
-    void flush();
-  }
+export function flushNow(): Promise<void> {
+  if (!timer) return Promise.resolve();
+  clearTimeout(timer);
+  return flush();
 }
