@@ -116,13 +116,16 @@ there too. Cargo caches are written by the default branch only; PRs and tags res
 
 ## Cutting a release
 
-1. Bump `version` in `Cargo.toml` (`[workspace.package]`) and `src-tauri/tauri.conf.json`; merge to `main`
-   with green CI.
-2. Tag and push: `git tag v0.1.0 && git push origin v0.1.0`. Use `v0.1.0-rc.1` for a pre-release
-   (marked as such automatically).
-3. Wait for `Release`. A version/tag mismatch fails the first job.
-4. Open the draft release, check the sizes in the build job summary, test the installer, then publish.
-   To redo a bad build, delete the draft and the tag and push the tag again.
+1. Bump `version` in `Cargo.toml` (`[workspace.package]`), `src-tauri/tauri.conf.json` and `ui/package.json`.
+   Merge the bump to `main` and wait for CI to pass.
+2. Optionally write release notes in `docs/releases/vX.Y.Z.md`. Without that file, GitHub generates the notes from the commits.
+3. Trigger the `Release` workflow, which builds both artifacts and **publishes** the release. Use either:
+   - a tag: `git tag vX.Y.Z && git push origin vX.Y.Z`
+   - a release branch: `git push origin HEAD:release/vX.Y.Z`. The workflow creates the tag itself, so use this where only branch pushes are allowed.
+
+   A version with a `-` suffix (`v0.3.0-rc.1`) is published as a pre-release.
+4. If the tag and the version do not match, the first job fails.
+5. To redo a bad build, re-run the workflow; it replaces the assets of the existing release. Alternatively, delete the release and the tag, then trigger it again.
 
 Code signing is not enabled: Windows SmartScreen will warn on the installer. A commented placeholder in
 `windows-build.yml` shows where to add a certificate from repository secrets.

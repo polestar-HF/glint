@@ -1,13 +1,20 @@
 name: Release
 
-# Push a tag like v0.1.0 (or v0.1.0-rc.1, published as a pre-release) to build
-# the Windows installer and portable zip and attach them to a DRAFT GitHub
-# Release. Review the draft and its size summary, then publish it by hand.
-# See docs/BUILD.md. Tag commits that already passed ci.yml.
+# Builds the Windows installer and portable zip and publishes them as a GitHub
+# Release (versions with a "-", e.g. v0.3.0-rc.1, become pre-releases).
+#
+# Two ways to trigger it, both for commits that already passed ci.yml:
+#   * push a tag:                  git push origin v0.2.0
+#   * push a release branch:       git push origin HEAD:release/v0.2.0
+#     The workflow then creates the tag itself. Use this where pushing tags is
+#     not possible (e.g. automation that may only push branches).
+# Release notes come from docs/releases/<tag>.md when present, otherwise they
+# are generated from the commits. See docs/BUILD.md.
 
 on:
   push:
     tags: ["v*"]
+    branches: ["release/v*"]
 
 concurrency:
   group: release-${{ github.ref_name }}
@@ -25,15 +32,28 @@ jobs:
     name: Verify tag matches version
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      tag: ${{ steps.tag.outputs.tag }}
     steps:
+      - name: Resolve tag
+        id: tag
+        env:
+          REF_NAME: ${{ github.ref_name }}
+        run: |
+          tag="${REF_NAME#release/}"
+          case "$tag" in v[0-9]*) ;; *) echo "::error::cannot derive a vX.Y.Z tag from $REF_NAME"; exit 1 ;; esac
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+
       - name: Checkout
         uses: actions/checkout@v6
         with:
           persist-credentials: false
 
       - name: Compare tag with Cargo.toml / tauri.conf.json
+        env:
+          TAG: ${{ steps.tag.outputs.tag }}
         run: |
-          want="${GITHUB_REF_NAME#v}"
+          want="${TAG#v}"
           cargo_version="$(cargo metadata --no-deps --format-version 1 \
             | jq -r '.packages[] | select(.name == "glint") | .version')"
           conf_version=""
@@ -41,9 +61,9 @@ jobs:
             conf_version="$(jq -r '.version // empty' src-tauri/tauri.conf.json)"
           fi
           echo "tag: $want, Cargo.toml: $cargo_version, tauri.conf.json: ${conf_version:-<unset>}"
-          [ "$cargo_version" = "$want" ] || { echo "::error::Cargo.toml version $cargo_version does not match tag $GITHUB_REF_NAME"; exit 1; }
+          [ "$cargo_version" = "$want" ] || { echo "::error::Cargo.toml version $cargo_version does not match tag $TAG"; exit 1; }
           if [ -n "$conf_version" ] && [ "$conf_version" != "$want" ]; then
-            echo "::error::tauri.conf.json version $conf_version does not match tag $GITHUB_REF_NAME"
+            echo "::error::tauri.conf.json version $conf_version does not match tag $TAG"
             exit 1
           fi
 
@@ -57,33 +77,55 @@ jobs:
       retention-days: 30
     # secrets: inherit # once code signing is enabled (see windows-build.yml)
 
-  draft-release:
-    name: Draft GitHub Release
-    needs: build
+  publish-release:
+    name: Publish GitHub Release
+    needs: [verify, build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
-      contents: write # create the release and upload assets
+      contents: write # create the tag and the release, upload assets
     steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
       - name: Download artifacts
         uses: actions/download-artifact@v8
         with:
           path: dist
           merge-multiple: true
 
-      - name: Create draft release
+      - name: Create tag (release branch only)
+        if: github.ref_type == 'branch'
         env:
           GH_TOKEN: ${{ github.token }}
-          TAG: ${{ github.ref_name }}
+          TAG: ${{ needs.verify.outputs.tag }}
         run: |
+          # A tag made with GITHUB_TOKEN does not start this workflow a second time.
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" > /dev/null 2>&1; then
+            have="$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG" --jq .object.sha)"
+            echo "tag $TAG already exists at $have"
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/git/refs" -f "ref=refs/tags/$TAG" -f "sha=$GITHUB_SHA" > /dev/null
+            echo "created tag $TAG at $GITHUB_SHA"
+          fi
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.verify.outputs.tag }}
+        run: |
+          notes="docs/releases/$TAG.md"
           cd dist
           sha256sum -- * > SHA256SUMS.txt
           cat SHA256SUMS.txt
-          # Re-runs add to the existing draft instead of creating a second one.
+          # Re-runs replace the assets of the existing release instead of creating a second one.
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" > /dev/null 2>&1; then
             gh release upload "$TAG" --repo "$GITHUB_REPOSITORY" --clobber ./*
           else
-            flags=(--draft --verify-tag --title "Glint $TAG" --generate-notes)
+            flags=(--verify-tag --title "Glint $TAG")
+            if [ -f "../$notes" ]; then flags+=(--notes-file "../$notes"); else flags+=(--generate-notes); fi
             case "$TAG" in *-*) flags+=(--prerelease) ;; esac
             gh release create "$TAG" --repo "$GITHUB_REPOSITORY" "${flags[@]}" ./*
           fi

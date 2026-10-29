@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: ["**"] # branch pushes only; tags are handled by release.yml
+    branches: ["**", "!release/**"] # tags and release/* branches are handled by release.yml
   pull_request:
   workflow_dispatch:
 
