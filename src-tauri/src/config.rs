@@ -107,7 +107,7 @@ impl Default for Ui {
             theme: "system".into(),
             font_size: 14,
             accent: "#1E6AC5".into(),
-            close_on_blur: true,
+            close_on_blur: false,
             popup_idle_destroy_secs: 600,
         }
     }

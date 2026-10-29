@@ -137,7 +137,7 @@ them with DPAPI is planned for later.
   "ui":       { "theme": "system",                // "system" | "light" | "dark"
                 "fontSize": 14,
                 "accent": "#1E6AC5",
-                "closeOnBlur": true,
+                "closeOnBlur": false,
                 "popupIdleDestroySecs": 600 },
   "overlay":  { "snapWindows": true, "magnifier": true }
 }
