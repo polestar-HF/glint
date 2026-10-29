@@ -40,11 +40,15 @@ env:
   MODELS_WITH_DICT: "false"
   # Portable zip layout: <exe> + these folders from target/release (the
   # resources tauri-build copied next to the exe) + any DLLs next to the exe.
-  # The files in PORTABLE_REQUIRED_FILES must be among them (glint-ocr loads
-  # onnxruntime.dll at run time; see bundle.resources in tauri.conf.json).
+  # The files in PORTABLE_REQUIRED_FILES must be among them and at least
+  # MIN_REQUIRED_FILE_BYTES big, so an empty placeholder (scripts/fetch-vcrt.sh)
+  # can never ship: glint-ocr loads onnxruntime.dll at run time, and both it and
+  # glint.exe need the app-local VC++ runtime DLLs (see bundle.resources in
+  # tauri.conf.json).
   APP_BIN: glint
   PORTABLE_RESOURCE_DIRS: models
-  PORTABLE_REQUIRED_FILES: onnxruntime.dll
+  PORTABLE_REQUIRED_FILES: onnxruntime.dll,msvcp140.dll,msvcp140_1.dll,vcruntime140.dll,vcruntime140_1.dll
+  MIN_REQUIRED_FILE_BYTES: "10240"
   # Size KPI: installer budget (MiB). Exceeding it warns, it does not fail.
   INSTALLER_BUDGET_MIB: "45"
 
@@ -115,6 +119,21 @@ jobs:
           $dll = (Resolve-Path 'src-tauri/resources/onnxruntime.dll').Path
           "ORT_DYLIB_PATH=$dll" >> $env:GITHUB_ENV
 
+      # App-local VC++ runtime: copied from the runner's Visual Studio
+      # redistributable folder and checked (size, Microsoft Authenticode
+      # signature). Release builds only ever use these CI-copied files.
+      - name: Copy VC++ runtime DLLs
+        shell: pwsh
+        run: ./scripts/fetch-vcrt.ps1
+
+      # rust-cache does not keep the resources tauri-build copied into
+      # target/release, but can keep a build-script run that looks up to date
+      # (the cached models are older than it). Touch the sources so tauri-build
+      # copies every resource again; the portable zip is made from that copy.
+      - name: Refresh resource timestamps
+        shell: pwsh
+        run: Get-ChildItem src-tauri/resources -Recurse -File | ForEach-Object { $_.LastWriteTime = Get-Date }
+
       # Must run before any cargo step on `glint` as well: the crate embeds
       # ui/dist at compile time (tauri::generate_context!).
       - name: Build UI
@@ -180,8 +199,13 @@ jobs:
           $dlls | Copy-Item -Destination $stage
           foreach ($file in ($env:PORTABLE_REQUIRED_FILES -split ',')) {
             $file = $file.Trim()
-            if ($file -and -not (Test-Path -LiteralPath (Join-Path $stage $file) -PathType Leaf)) {
+            if (-not $file) { continue }
+            $path = Join-Path $stage $file
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) {
               throw "Required file '$file' not found in $profileDir (check bundle.resources in tauri.conf.json)"
+            }
+            if ((Get-Item -LiteralPath $path).Length -lt [int]$env:MIN_REQUIRED_FILE_BYTES) {
+              throw "Required file '$file' is smaller than $($env:MIN_REQUIRED_FILE_BYTES) bytes (an empty placeholder?)"
             }
           }
 
@@ -191,13 +215,15 @@ jobs:
 
           $modelsBytes = (Get-ChildItem (Join-Path $stage 'models') -Recurse -File -ErrorAction SilentlyContinue |
             Measure-Object -Property Length -Sum).Sum
-          function Format-Mib([double]$Bytes) { '{0:N1} MiB' -f ($Bytes / 1MB) }
+          function Format-Size([double]$Bytes) {
+            if ($Bytes -lt 1MB) { '{0:N0} KiB' -f ($Bytes / 1KB) } else { '{0:N1} MiB' -f ($Bytes / 1MB) }
+          }
 
           $installerMib = $installerOut.Length / 1MB
           $budget = [double]$env:INSTALLER_BUDGET_MIB
           $status = if ($installerMib -le $budget) { 'within budget' } else { 'OVER BUDGET' }
           if ($installerMib -gt $budget) {
-            Write-Host "::warning title=Installer over size budget::$(Format-Mib $installerOut.Length) > $budget MiB"
+            Write-Host "::warning title=Installer over size budget::$(Format-Size $installerOut.Length) > $budget MiB"
           }
 
           $rows = @(
@@ -205,14 +231,16 @@ jobs:
             '',
             '| Artifact | Size | Note |',
             '|---|---:|---|',
-            "| ``$($exe.Name)`` | $(Format-Mib $exe.Length) | release binary, unpacked |",
-            "| ``$($installerOut.Name)`` | $(Format-Mib $installerOut.Length) | budget $budget MiB: $status |",
-            "| ``$stageName.zip`` | $(Format-Mib (Get-Item $zip).Length) | portable: exe + resources + DLLs |",
-            "| ``models/`` | $(Format-Mib $modelsBytes) | unpacked, inside both of the above |"
+            "| ``$($exe.Name)`` | $(Format-Size $exe.Length) | release binary, unpacked |",
+            "| ``$($installerOut.Name)`` | $(Format-Size $installerOut.Length) | budget $budget MiB: $status |",
+            "| ``$stageName.zip`` | $(Format-Size (Get-Item $zip).Length) | portable: exe + resources + DLLs |",
+            "| ``models/`` | $(Format-Size $modelsBytes) | unpacked, inside both of the above |"
           )
           foreach ($dll in $dlls) {
-            $note = if ($dll.Name -eq 'onnxruntime.dll') { 'ONNX Runtime (CPU), next to the exe' } else { 'DLL next to the exe' }
-            $rows += "| ``$($dll.Name)`` | $(Format-Mib $dll.Length) | $note |"
+            $note = if ($dll.Name -eq 'onnxruntime.dll') { 'ONNX Runtime (CPU), next to the exe' }
+              elseif ($dll.Name -match '^(msvcp|vcruntime)140') { 'VC++ runtime, app-local, next to the exe' }
+              else { 'DLL next to the exe' }
+            $rows += "| ``$($dll.Name)`` | $(Format-Size $dll.Length) | $note |"
           }
           $rows | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           $rows | ForEach-Object { Write-Host $_ }

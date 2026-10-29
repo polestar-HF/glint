@@ -19,6 +19,7 @@ releases and expected sizes.
 git clone <repo> glint; cd glint
 powershell -ExecutionPolicy Bypass -File scripts/fetch-models.ps1    # OCR models, once
 powershell -ExecutionPolicy Bypass -File scripts/fetch-runtime.ps1   # onnxruntime.dll, once
+powershell -ExecutionPolicy Bypass -File scripts/fetch-vcrt.ps1      # VC++ runtime DLLs, once
 npm ci --prefix ui             # UI dependencies
 cargo tauri dev                # Vite dev server + app, from the repo root
 ```
@@ -29,8 +30,8 @@ cargo tauri dev                # Vite dev server + app, from the repo root
 
 Order matters for any cargo command on the `glint` crate (`cargo check`, `clippy`, `test`):
 
-1. Models and `onnxruntime.dll` must exist: `tauri-build` copies `bundle.resources` and fails on a
-   missing file or glob.
+1. Models, `onnxruntime.dll` and the four VC++ runtime DLLs must exist: `tauri-build` copies
+   `bundle.resources` and fails on a missing file or glob.
 2. `ui/dist` must exist: the crate embeds it at compile time. Run `npm run build` in `ui/` first.
 
 ## Models
@@ -83,6 +84,24 @@ CI on Windows sets `ORT_DYLIB_PATH` to this file for `cargo test`. On Linux, CI 
 `libonnxruntime.so.1.31.1` from the Linux wheel the same way (pinned in `ci.yml`). Keep both on the
 same ONNX Runtime version, matching the `ort` crate (1.31).
 
+## VC++ runtime (app-local)
+
+`onnxruntime.dll` imports `MSVCP140.dll`, `MSVCP140_1.dll`, `VCRUNTIME140.dll` and
+`VCRUNTIME140_1.dll`, and `glint.exe` links `VCRUNTIME140` dynamically. A clean Windows machine may lack
+the VC++ Redistributable, so these four DLLs ship next to the exe (Microsoft permits app-local
+deployment). `tauri.conf.json` maps `resources/vcrt/<name>.dll` to `<name>.dll`, lowercase.
+
+- **Windows / CI:** `scripts/fetch-vcrt.ps1` copies them from the installed Visual Studio's redistributable
+  folder (`VCToolsRedistDir`, else `vswhere`; `x64\Microsoft.VC*.CRT`) into `src-tauri/resources/vcrt/`.
+  Each file must be at least 10 KB, have a valid Authenticode signature and be signed by Microsoft
+  Corporation; nothing is written otherwise.
+- **Linux:** `scripts/fetch-vcrt.sh` writes empty placeholders (plus `PLACEHOLDER-NOT-SHIPPABLE.txt`) and
+  warns loudly. They only let `cargo check --target x86_64-pc-windows-msvc -p glint` find its resources
+  and are **not shippable**: there is no source we can verify from Linux.
+- **Guard:** the portable-zip step in `windows-build.yml` fails if any required DLL (these four and
+  `onnxruntime.dll`) is missing or under 10 KB, so a placeholder cannot reach a CI-built artifact.
+  Release builds use only the DLLs copied by `fetch-vcrt.ps1` in CI.
+
 ## CI
 
 | Workflow | Trigger | What it does |
@@ -118,6 +137,7 @@ artifact and warns, without failing, when the installer is over budget.
 | Models, unpacked | 29.7 MiB (det 9.5, rec 20.3) |
 | Models, LZMA/deflate (measured) | about 24.8 MiB / 25.3 MiB; ONNX weights barely compress |
 | `onnxruntime.dll` | 18.4 MiB unpacked, about 4.6 MiB LZMA (measured) |
+| VC++ runtime, 4 DLLs | under 1 MiB (estimate) |
 | `glint.exe` | 4-8 MiB (estimate); ONNX Runtime is not linked in |
 | NSIS installer | about 35-40 MiB (estimate), WebView2 is downloaded, not embedded |
 | Portable zip | about the same, a little larger (deflate) |
@@ -128,8 +148,10 @@ artifact and warns, without failing, when the installer is over budget.
 - ONNX Runtime fails to load: `onnxruntime.dll` must sit next to `glint.exe` (the `tauri.conf.json`
   resource entry), or `ORT_DYLIB_PATH` must point at it (tests, ad-hoc runs). Load it by full path:
   recent Windows builds ship an older, incompatible `onnxruntime.dll` in `System32`.
-- The portable-zip step fails with "Required file 'onnxruntime.dll' not found": the resource entry in
-  `tauri.conf.json` is missing or `fetch-runtime` did not run.
+- The portable-zip step fails with "Required file ... not found" or "smaller than 10240 bytes": the
+  resource entry in `tauri.conf.json` is missing, or a fetch script did not run (or left a placeholder).
+- `windows-build.yml` touches `src-tauri/resources` before building: `rust-cache` drops the copies
+  `tauri-build` makes in `target/release`, and without the touch a warm cache would skip copying them.
 - `cargo test` on Windows dying with `0xc0000139` (STATUS_ENTRYPOINT_NOT_FOUND) in the `glint` crate:
   the test binary lacks the Common Controls manifest. Exclude it with
   `TEST_SCOPE: "--workspace --exclude glint"` or embed the manifest for tests.
