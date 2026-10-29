@@ -10,7 +10,7 @@
 
   The DLLs come from the official VS redistributable folder of the installed
   Visual Studio / Build Tools (x64\Microsoft.VC*.CRT). Each copy is checked:
-  at least 10 KB, valid Authenticode signature, signed by Microsoft Corporation.
+  at least 10 KB, valid Authenticode signature, signer organization Microsoft Corporation.
   File names are normalized to lowercase. Nothing is written unless all four
   pass. Release builds must only ever use DLLs copied by this script on a
   Windows machine; the Linux helper fetch-vcrt.sh writes empty placeholders.
@@ -106,8 +106,10 @@ function Assert-MicrosoftSigned([string]$Path) {
   if ($sig.Status -ne 'Valid') {
     throw "fetch-vcrt: $name has signature status '$($sig.Status)', expected Valid"
   }
+  # The CN varies (e.g. "Microsoft Windows Software Compatibility Publisher" on the VS redist
+  # DLLs); the organization is what identifies Microsoft.
   $subject = [string]$sig.SignerCertificate.Subject
-  if ($subject -notmatch '(^|, )CN=Microsoft Corporation(,|$)') {
+  if ($subject -notmatch '(^|, )O=Microsoft Corporation(,|$)') {
     throw "fetch-vcrt: $name is not signed by Microsoft Corporation (signer: $subject)"
   }
 }
