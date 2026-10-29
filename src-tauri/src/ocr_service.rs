@@ -68,6 +68,9 @@ impl OcrService {
         if slot.as_ref().is_some_and(|l| l.last_used.elapsed() >= idle) {
             log::info!("unloading idle ocr engine");
             *slot = None;
+            drop(slot);
+            // Hand freed ONNX buffers back to the OS so idle RSS actually drops.
+            glint_ocr::trim_process_memory();
         }
     }
 
@@ -91,8 +94,24 @@ impl OcrService {
                     ort_dylib_path: Some(self.ort_dylib.clone()),
                     ..Default::default()
                 };
-                Ok(Arc::new(glint_ocr::PaddleOcr::load(&self.model_dir, opts)?))
+                match glint_ocr::PaddleOcr::load(&self.model_dir, opts) {
+                    Ok(engine) => Ok(Arc::new(engine)),
+                    Err(e) => self.fallback(e),
+                }
             }
         }
+    }
+
+    /// A broken PaddleOCR install (missing runtime DLL, damaged model) degrades to the
+    /// built-in Windows OCR instead of failing every capture. `OcrResult::engine` tells
+    /// the popup which engine actually ran.
+    fn fallback(&self, err: glint_ocr::OcrError) -> anyhow::Result<Arc<dyn OcrEngine>> {
+        log::error!("paddle ocr load failed: {err}");
+        #[cfg(windows)]
+        if let Ok(engine) = glint_ocr::WindowsOcr::new("auto") {
+            log::warn!("falling back to Windows OCR");
+            return Ok(Arc::new(engine));
+        }
+        Err(err.into())
     }
 }

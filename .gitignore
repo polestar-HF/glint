@@ -7,3 +7,4 @@ ui/dist/
 /src-tauri/resources/models/
 /src-tauri/resources/*.dll
 /src-tauri/gen/
+/src-tauri/resources/vcrt/

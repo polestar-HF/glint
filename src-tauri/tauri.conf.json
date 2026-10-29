@@ -22,7 +22,11 @@
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.ico"],
     "resources": {
       "resources/models/v6-small/*": "models/v6-small/",
-      "resources/onnxruntime.dll": "onnxruntime.dll"
+      "resources/onnxruntime.dll": "onnxruntime.dll",
+      "resources/vcrt/msvcp140.dll": "msvcp140.dll",
+      "resources/vcrt/msvcp140_1.dll": "msvcp140_1.dll",
+      "resources/vcrt/vcruntime140.dll": "vcruntime140.dll",
+      "resources/vcrt/vcruntime140_1.dll": "vcruntime140_1.dll"
     },
     "windows": {
       "webviewInstallMode": { "type": "downloadBootstrapper" },
