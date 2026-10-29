@@ -549,12 +549,7 @@ fn is_list_like(b: &[Ln]) -> bool {
     let body = &b[..b.len() - 1];
     let short = body.iter().filter(|l| right - l.r > 0.25 * width).count();
     // One short line is just the end of a paragraph; several are a list.
-    if short >= 2 && short * 5 >= body.len() * 2 {
-        return true;
-    }
-    // A column of items that each end like a sentence is a list of sentences, not one paragraph.
-    let marked = b.iter().filter(|l| starts_with_marker(l.text)).count();
-    marked * 2 >= b.len()
+    short >= 2 && short * 5 >= body.len() * 2
 }
 
 /// Terminal punctuation: `。！？.!?:：` (and `…`, `;`-like marks), ignoring closing quotes/brackets.

@@ -6,16 +6,16 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-# `ort-static` is the default and is what CI on Windows uses: `ort`'s build script
-# downloads a prebuilt ONNX Runtime and links it into the executable.
-# `ort-dynamic` loads `onnxruntime.dll` / `libonnxruntime.so` at run time instead
-# (path from `PaddleOptions::ort_dylib_path`, then `ORT_DYLIB_PATH`, then next to
-# the executable). Use it with `--no-default-features`; enabling both makes the build
-# script download a runtime that is then never used.
+# `ort-dynamic` (default) loads `onnxruntime.dll` / `libonnxruntime.so` at run time, from
+# `PaddleOptions::ort_dylib_path`, then `ORT_DYLIB_PATH`, then next to the executable. It needs
+# no download at build time. The shipped runtime must be ONNX Runtime >= 1.31.
+# `ort-static` (opt-in) uses `ort`'s `download-binaries` to link a prebuilt runtime into the
+# executable. On Windows that prebuilt is the DirectML flavour (there is no CPU-only one), so
+# prefer `ort-dynamic` there. Do not enable both.
 # With neither feature, `PaddleOcr::load` returns `OcrError::Unsupported`.
-default = ["ort-static"]
-ort-static = ["dep:ort", "ort/download-binaries", "ort/tls-native"]
+default = ["ort-dynamic"]
 ort-dynamic = ["dep:ort", "ort/load-dynamic"]
+ort-static = ["dep:ort", "ort/download-binaries", "ort/tls-native"]
 
 [dependencies]
 image.workspace = true
