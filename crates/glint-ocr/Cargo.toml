@@ -1,0 +1,23 @@
+[package]
+name = "glint-ocr"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+image.workspace = true
+thiserror.workspace = true
+log.workspace = true
+serde.workspace = true
+# ONNX Runtime binding is chosen by the OCR engineer (see docs/ARCHITECTURE.md).
+
+[target.'cfg(windows)'.dependencies]
+windows = { workspace = true, features = [
+    "Media_Ocr",
+    "Graphics_Imaging",
+    "Globalization",
+    "Storage_Streams",
+    "Foundation",
+    "Foundation_Collections",
+] }

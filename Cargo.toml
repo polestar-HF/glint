@@ -1,0 +1,38 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/glint-overlay",
+    "crates/glint-ocr",
+    "crates/glint-translate",
+    "src-tauri",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "UNLICENSED"
+publish = false
+
+[workspace.dependencies]
+glint-overlay = { path = "crates/glint-overlay" }
+glint-ocr = { path = "crates/glint-ocr" }
+glint-translate = { path = "crates/glint-translate" }
+image = { version = "0.25", default-features = false, features = ["png"] }
+thiserror = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+windows = "0.61"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# Keep image/ONNX math fast even in debug builds.
+[profile.dev.package."*"]
+opt-level = 2
