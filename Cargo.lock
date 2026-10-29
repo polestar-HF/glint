@@ -1589,7 +1589,7 @@ dependencies = [
 
 [[package]]
 name = "glint"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "anyhow",
  "glint-ocr",
@@ -1614,7 +1614,7 @@ dependencies = [
 
 [[package]]
 name = "glint-ocr"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "log",
@@ -1628,7 +1628,7 @@ dependencies = [
 
 [[package]]
 name = "glint-overlay"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "image",
  "log",
@@ -1638,7 +1638,7 @@ dependencies = [
 
 [[package]]
 name = "glint-translate"
-version = "0.2.0"
+version = "0.2.1"
 dependencies = [
  "async-trait",
  "log",
