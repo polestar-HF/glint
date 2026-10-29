@@ -32,7 +32,12 @@ pub struct Rect {
 
 impl Rect {
     pub const fn new(left: i32, top: i32, right: i32, bottom: i32) -> Self {
-        Self { left, top, right, bottom }
+        Self {
+            left,
+            top,
+            right,
+            bottom,
+        }
     }
 
     pub fn from_xywh(x: i32, y: i32, width: i32, height: i32) -> Self {
@@ -82,7 +87,12 @@ impl Rect {
     }
 
     pub fn offset(self, dx: i32, dy: i32) -> Rect {
-        Rect::new(self.left + dx, self.top + dy, self.right + dx, self.bottom + dy)
+        Rect::new(
+            self.left + dx,
+            self.top + dy,
+            self.right + dx,
+            self.bottom + dy,
+        )
     }
 
     /// Grows the rectangle by `d` on every side (shrinks when `d` is negative).
@@ -93,7 +103,12 @@ impl Rect {
     /// The rectangle whose corner pixels are `a` and `b`, both included. Dragging from a
     /// pixel to the same pixel gives 1×1, and dragging to the last column reaches the edge.
     pub fn spanning(a: Point, b: Point) -> Rect {
-        Rect::new(a.x.min(b.x), a.y.min(b.y), a.x.max(b.x) + 1, a.y.max(b.y) + 1)
+        Rect::new(
+            a.x.min(b.x),
+            a.y.min(b.y),
+            a.x.max(b.x) + 1,
+            a.y.max(b.y) + 1,
+        )
     }
 
     /// Clamps `p` to the nearest pixel inside this (non-empty) rectangle.
@@ -107,7 +122,11 @@ impl Rect {
 
 /// Converts a logical (96-DPI) length to physical pixels, never below 1.
 pub fn scaled(logical: f32, scale: f32) -> i32 {
-    let s = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+    let s = if scale.is_finite() && scale > 0.0 {
+        scale
+    } else {
+        1.0
+    };
     ((logical * s).round() as i32).max(1)
 }
 
@@ -115,7 +134,11 @@ pub fn scaled(logical: f32, scale: f32) -> i32 {
 /// right). With no hole, or a hole outside `bounds`, that is `bounds` itself.
 pub fn rects_around(bounds: Rect, hole: Option<Rect>) -> Vec<Rect> {
     let Some(hole) = hole.and_then(|h| h.intersect(bounds)) else {
-        return if bounds.is_empty() { Vec::new() } else { vec![bounds] };
+        return if bounds.is_empty() {
+            Vec::new()
+        } else {
+            vec![bounds]
+        };
     };
     [
         Rect::new(bounds.left, bounds.top, bounds.right, hole.top),
@@ -182,7 +205,11 @@ fn clamp_box(x: i32, y: i32, w: i32, h: i32, bounds: Rect) -> Rect {
 /// inside `bounds`.
 pub fn place_chip(anchor: Rect, w: i32, h: i32, gap: i32, bounds: Rect) -> Rect {
     let above = anchor.top - gap - h;
-    let y = if above >= bounds.top { above } else { anchor.top + gap };
+    let y = if above >= bounds.top {
+        above
+    } else {
+        anchor.top + gap
+    };
     clamp_box(anchor.left, y, w, h, bounds)
 }
 
@@ -216,7 +243,12 @@ mod tests {
 
     #[test]
     fn phys_roundtrip_with_negative_origin() {
-        let p = PhysRect { x: -1920, y: -200, width: 1920, height: 1080 };
+        let p = PhysRect {
+            x: -1920,
+            y: -200,
+            width: 1920,
+            height: 1080,
+        };
         let r = Rect::from_phys(p);
         assert_eq!(r, Rect::new(-1920, -200, 0, 880));
         assert_eq!(r.to_phys(), p);
@@ -225,8 +257,15 @@ mod tests {
     #[test]
     fn intersect_and_contains() {
         let a = Rect::new(0, 0, 100, 100);
-        assert_eq!(a.intersect(Rect::new(50, 50, 150, 150)), Some(Rect::new(50, 50, 100, 100)));
-        assert_eq!(a.intersect(Rect::new(100, 0, 200, 100)), None, "touching is not overlapping");
+        assert_eq!(
+            a.intersect(Rect::new(50, 50, 150, 150)),
+            Some(Rect::new(50, 50, 100, 100))
+        );
+        assert_eq!(
+            a.intersect(Rect::new(100, 0, 200, 100)),
+            None,
+            "touching is not overlapping"
+        );
         assert!(a.contains(Point::new(0, 0)));
         assert!(a.contains(Point::new(99, 99)));
         assert!(!a.contains(Point::new(100, 50)));
@@ -235,17 +274,32 @@ mod tests {
 
     #[test]
     fn spanning_includes_both_corners_in_any_direction() {
-        assert_eq!(Rect::spanning(Point::new(5, 5), Point::new(5, 5)), Rect::new(5, 5, 6, 6));
-        assert_eq!(Rect::spanning(Point::new(10, 20), Point::new(13, 23)), Rect::new(10, 20, 14, 24));
-        assert_eq!(Rect::spanning(Point::new(13, 23), Point::new(10, 20)), Rect::new(10, 20, 14, 24));
-        assert_eq!(Rect::spanning(Point::new(-5, 3), Point::new(2, -4)), Rect::new(-5, -4, 3, 4));
+        assert_eq!(
+            Rect::spanning(Point::new(5, 5), Point::new(5, 5)),
+            Rect::new(5, 5, 6, 6)
+        );
+        assert_eq!(
+            Rect::spanning(Point::new(10, 20), Point::new(13, 23)),
+            Rect::new(10, 20, 14, 24)
+        );
+        assert_eq!(
+            Rect::spanning(Point::new(13, 23), Point::new(10, 20)),
+            Rect::new(10, 20, 14, 24)
+        );
+        assert_eq!(
+            Rect::spanning(Point::new(-5, 3), Point::new(2, -4)),
+            Rect::new(-5, -4, 3, 4)
+        );
     }
 
     #[test]
     fn clamp_point_stays_on_last_pixel() {
         let m = Rect::new(-1920, 0, 0, 1080);
         assert_eq!(m.clamp_point(Point::new(500, -10)), Point::new(-1, 0));
-        assert_eq!(m.clamp_point(Point::new(-5000, 5000)), Point::new(-1920, 1079));
+        assert_eq!(
+            m.clamp_point(Point::new(-5000, 5000)),
+            Point::new(-1920, 1079)
+        );
         assert_eq!(m.clamp_point(Point::new(-100, 100)), Point::new(-100, 100));
     }
 
@@ -284,7 +338,10 @@ mod tests {
     fn rects_around_edge_cases() {
         let b = Rect::new(0, 0, 100, 80);
         assert_eq!(rects_around(b, None), vec![b]);
-        assert_eq!(rects_around(b, Some(Rect::new(200, 200, 300, 300))), vec![b]);
+        assert_eq!(
+            rects_around(b, Some(Rect::new(200, 200, 300, 300))),
+            vec![b]
+        );
         assert!(rects_around(b, Some(b)).is_empty());
         // A hole sticking out of the bounds is clipped first.
         let parts = rects_around(b, Some(Rect::new(-10, -10, 50, 200)));
@@ -302,7 +359,9 @@ mod tests {
         let inside = frame_inside(r, 2);
         let area: i32 = inside.iter().map(|b| b.width() * b.height()).sum();
         assert_eq!(area, 10 * 20 - 6 * 16);
-        assert!(inside.iter().all(|b| b.is_empty() || b.intersect(r) == Some(*b)));
+        assert!(inside
+            .iter()
+            .all(|b| b.is_empty() || b.intersect(r) == Some(*b)));
     }
 
     #[test]
@@ -328,25 +387,46 @@ mod tests {
     fn chip_goes_above_then_below() {
         let bounds = Rect::new(0, 0, 1920, 1080);
         let sel = Rect::new(100, 200, 500, 400);
-        assert_eq!(place_chip(sel, 80, 24, 4, bounds), Rect::new(100, 172, 180, 196));
+        assert_eq!(
+            place_chip(sel, 80, 24, 4, bounds),
+            Rect::new(100, 172, 180, 196)
+        );
         // No room above: below the top-left corner, inside the selection.
         let top = Rect::new(100, 10, 500, 400);
-        assert_eq!(place_chip(top, 80, 24, 4, bounds), Rect::new(100, 14, 180, 38));
+        assert_eq!(
+            place_chip(top, 80, 24, 4, bounds),
+            Rect::new(100, 14, 180, 38)
+        );
         // Right edge: shifted left to stay on screen.
         let right = Rect::new(1900, 500, 1920, 600);
-        assert_eq!(place_chip(right, 80, 24, 4, bounds), Rect::new(1840, 472, 1920, 496));
+        assert_eq!(
+            place_chip(right, 80, 24, 4, bounds),
+            Rect::new(1840, 472, 1920, 496)
+        );
     }
 
     #[test]
     fn beside_cursor_flips_at_edges() {
         let b = Rect::new(0, 0, 1000, 800);
-        assert_eq!(place_beside_cursor(Point::new(100, 100), 120, 150, 20, b), Rect::new(120, 120, 240, 270));
+        assert_eq!(
+            place_beside_cursor(Point::new(100, 100), 120, 150, 20, b),
+            Rect::new(120, 120, 240, 270)
+        );
         // Right edge flips left.
-        assert_eq!(place_beside_cursor(Point::new(950, 100), 120, 150, 20, b), Rect::new(810, 120, 930, 270));
+        assert_eq!(
+            place_beside_cursor(Point::new(950, 100), 120, 150, 20, b),
+            Rect::new(810, 120, 930, 270)
+        );
         // Bottom edge flips up.
-        assert_eq!(place_beside_cursor(Point::new(100, 750), 120, 150, 20, b), Rect::new(120, 580, 240, 730));
+        assert_eq!(
+            place_beside_cursor(Point::new(100, 750), 120, 150, 20, b),
+            Rect::new(120, 580, 240, 730)
+        );
         // Both.
-        assert_eq!(place_beside_cursor(Point::new(990, 790), 120, 150, 20, b), Rect::new(850, 620, 970, 770));
+        assert_eq!(
+            place_beside_cursor(Point::new(990, 790), 120, 150, 20, b),
+            Rect::new(850, 620, 970, 770)
+        );
         // Too close to both sides: clamped inside.
         let tiny = Rect::new(0, 0, 130, 160);
         let r = place_beside_cursor(Point::new(65, 80), 120, 150, 20, tiny);

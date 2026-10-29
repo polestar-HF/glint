@@ -17,22 +17,28 @@ use windows::Win32::Foundation::{
     GetLastError, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Dwm::{
-    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE, DWMWA_TRANSITIONS_FORCEDISABLED,
-    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWINDOWATTRIBUTE,
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE,
+    DWMWA_TRANSITIONS_FORCEDISABLED, DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND,
+    DWMWINDOWATTRIBUTE,
 };
-use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, UpdateWindow, PAINTSTRUCT};
+use windows::Win32::Graphics::Gdi::{
+    BeginPaint, EndPaint, InvalidateRect, UpdateWindow, PAINTSTRUCT,
+};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
-use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos,
-    GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId, IsHungAppWindow, IsWindow, LoadCursorW,
-    PostMessageW,
-    PostQuitMessage, RegisterClassExW, SetCursor, SetCursorPos, SetForegroundWindow, SetWindowPos, TranslateMessage,
-    UnregisterClassW, HCURSOR, HTCLIENT, HWND_TOPMOST, IDC_CROSS, MSG, SC_KEYMENU, SWP_NOACTIVATE, SWP_SHOWWINDOW,
-    WM_CAPTURECHANGED, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
-    WM_LBUTTONUP, WM_MOUSEMOVE, WM_NULL, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SYSCHAR,
-    WM_SYSCOMMAND, WM_SYSKEYDOWN, WNDCLASSEXW, WNDCLASS_STYLES, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW,
+    GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId,
+    IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, LoadCursorW, PostMessageW,
+    PostQuitMessage, RegisterClassExW, SetCursor, SetCursorPos, SetForegroundWindow, SetWindowPos,
+    TranslateMessage, UnregisterClassW, HCURSOR, HTCLIENT, HWND_TOPMOST, IDC_CROSS, MSG,
+    SC_KEYMENU, SWP_NOACTIVATE, SWP_SHOWWINDOW, WM_CAPTURECHANGED, WM_CLOSE, WM_DISPLAYCHANGE,
+    WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NULL,
+    WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSKEYDOWN,
+    WNDCLASSEXW, WNDCLASS_STYLES, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 use super::input::{self, Capture, Finish, Interaction, Response, View};
@@ -60,13 +66,18 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
 
     let monitors: Vec<Rect> = frames.iter().map(|f| Rect::from_phys(f.rect)).collect();
     // Taken before our windows exist, so they can never be snap targets.
-    let targets = if opts.snap_windows { snap::snapshot() } else { Vec::new() };
+    let targets = if opts.snap_windows {
+        snap::snapshot()
+    } else {
+        Vec::new()
+    };
     // SAFETY: no preconditions.
     let previous_foreground = unsafe { GetForegroundWindow() };
 
     let instance = module_instance()?;
     let class = WindowClass::register(instance)?;
-    let gfx = Gfx::new().map_err(|e| OverlayError::Window(format!("Direct2D/DirectWrite init: {e}")))?;
+    let gfx =
+        Gfx::new().map_err(|e| OverlayError::Window(format!("Direct2D/DirectWrite init: {e}")))?;
     let windows = WindowSet::create(instance, &monitors)?;
 
     let mut surfaces = Vec::with_capacity(frames.len());
@@ -74,15 +85,28 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
         let renderer = Renderer::new(&gfx, hwnd, frame.scale, opts.accent)
             .map_err(|e| OverlayError::Window(format!("text format: {e}")))?;
         let origin = Point::new(frame.rect.x, frame.rect.y);
-        surfaces.push(Surface { hwnd, origin, renderer, requested: View::default() });
+        surfaces.push(Surface {
+            hwnd,
+            origin,
+            renderer,
+            requested: View::default(),
+        });
     }
 
-    let mut interaction = Interaction::new(monitors.clone(), targets, opts.default_action, opts.show_magnifier);
+    let mut interaction = Interaction::new(
+        monitors.clone(),
+        targets,
+        opts.default_action,
+        opts.show_magnifier,
+    );
     if let Some(p) = cursor_pos() {
         // Seed the hover state so the very first frame already shows snap + magnifier.
         interaction.pointer_moved(p);
     }
-    let focus = interaction.cursor().and_then(|c| interaction.monitor_at(c)).unwrap_or(0);
+    let focus = interaction
+        .cursor()
+        .and_then(|c| interaction.monitor_at(c))
+        .unwrap_or(0);
     // SAFETY: loads a predefined system cursor (shared; never destroyed).
     let cross = unsafe { LoadCursorW(None, IDC_CROSS) }.ok();
 
@@ -115,7 +139,13 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
 
     let app = slot.take();
     // Release render targets, then destroy windows, then the class.
-    let App { surfaces, frames, finish, error, .. } = app.ok_or_else(|| OverlayError::Window("overlay state lost".into()))?;
+    let App {
+        surfaces,
+        frames,
+        finish,
+        error,
+        ..
+    } = app.ok_or_else(|| OverlayError::Window("overlay state lost".into()))?;
     drop(surfaces);
     drop(windows);
     drop(class);
@@ -135,9 +165,11 @@ pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result
         return Err(e);
     }
     match finish {
-        Some(Finish::Select { rect, monitor, action }) => {
-            build_selection(&frames, rect, monitor, action).map(Outcome::Selected)
-        }
+        Some(Finish::Select {
+            rect,
+            monitor,
+            action,
+        }) => build_selection(&frames, rect, monitor, action).map(Outcome::Selected),
         Some(Finish::Cancel) | None => Ok(Outcome::Cancelled),
     }
 }
@@ -220,7 +252,10 @@ impl App {
         if self.finish.is_none() {
             self.finish = Some(f);
         }
-        Deferred { wake: true, ..Deferred::default() }
+        Deferred {
+            wake: true,
+            ..Deferred::default()
+        }
     }
 
     /// Invalidates every window whose view changed, then turns the response into
@@ -236,7 +271,11 @@ impl App {
                 }
             }
         }
-        let mut d = Deferred { capture: r.capture, cursor_to: r.move_cursor, wake: false };
+        let mut d = Deferred {
+            capture: r.capture,
+            cursor_to: r.move_cursor,
+            wake: false,
+        };
         if let Some(f) = r.finish {
             d.wake = self.finish_with(f).wake;
         }
@@ -256,7 +295,9 @@ impl App {
             Ok(Drawn::DeviceLost) => {
                 self.device_losses += 1;
                 if self.device_losses > MAX_DEVICE_LOSSES {
-                    self.fail(OverlayError::Window("graphics device keeps getting lost".into()));
+                    self.fail(OverlayError::Window(
+                        "graphics device keeps getting lost".into(),
+                    ));
                 } else {
                     // SAFETY: our live window; queues a repaint with a fresh device.
                     unsafe {
@@ -268,7 +309,13 @@ impl App {
         }
     }
 
-    fn handle(&mut self, hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> (Option<LRESULT>, Deferred) {
+    fn handle(
+        &mut self,
+        hwnd: HWND,
+        msg: u32,
+        wp: WPARAM,
+        lp: LPARAM,
+    ) -> (Option<LRESULT>, Deferred) {
         let Some(idx) = self.surfaces.iter().position(|s| s.hwnd == hwnd) else {
             return (None, Deferred::default());
         };
@@ -357,9 +404,13 @@ impl App {
 
 /// Runs `f` on the installed App, unless there is none or it is already borrowed.
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
-    APP.try_with(|slot| slot.try_borrow_mut().ok().and_then(|mut guard| guard.as_mut().map(f)))
-        .ok()
-        .flatten()
+    APP.try_with(|slot| {
+        slot.try_borrow_mut()
+            .ok()
+            .and_then(|mut guard| guard.as_mut().map(f))
+    })
+    .ok()
+    .flatten()
 }
 
 fn app_done() -> bool {
@@ -375,8 +426,18 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) 
         with_app(|app| app.handle(hwnd, msg, wp, lp)).unwrap_or((None, Deferred::default()))
     }));
     let (result, deferred) = outcome.unwrap_or_else(|_| {
-        with_app(|app| app.fail(OverlayError::Window("panic in overlay window procedure".into())));
-        (None, Deferred { wake: true, ..Deferred::default() })
+        with_app(|app| {
+            app.fail(OverlayError::Window(
+                "panic in overlay window procedure".into(),
+            ))
+        });
+        (
+            None,
+            Deferred {
+                wake: true,
+                ..Deferred::default()
+            },
+        )
     });
     deferred.apply(hwnd);
     match result {
@@ -448,7 +509,9 @@ impl AppSlot {
     }
 
     fn take(self) -> Option<App> {
-        APP.try_with(|slot| slot.try_borrow_mut().ok().and_then(|mut g| g.take())).ok().flatten()
+        APP.try_with(|slot| slot.try_borrow_mut().ok().and_then(|mut g| g.take()))
+            .ok()
+            .flatten()
     }
 }
 
@@ -581,9 +644,23 @@ impl Drop for WindowSet {
     }
 }
 
-fn place(hwnd: HWND, m: Rect, flags: windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS) {
+fn place(
+    hwnd: HWND,
+    m: Rect,
+    flags: windows::Win32::UI::WindowsAndMessaging::SET_WINDOW_POS_FLAGS,
+) {
     // SAFETY: our live window; physical coordinates under PMv2.
-    if let Err(e) = unsafe { SetWindowPos(hwnd, Some(HWND_TOPMOST), m.left, m.top, m.width(), m.height(), flags) } {
+    if let Err(e) = unsafe {
+        SetWindowPos(
+            hwnd,
+            Some(HWND_TOPMOST),
+            m.left,
+            m.top,
+            m.width(),
+            m.height(),
+            flags,
+        )
+    } {
         log::warn!("SetWindowPos: {e}");
     }
 }
@@ -593,7 +670,15 @@ fn place(hwnd: HWND, m: Rect, flags: windows::Win32::UI::WindowsAndMessaging::SE
 fn dwm_set<T: Copy>(hwnd: HWND, attr: DWMWINDOWATTRIBUTE, value: &T) -> bool {
     // SAFETY: the pointer and size describe `value`, which outlives the call; DWM
     // copies it and rejects mismatched sizes with an error.
-    unsafe { DwmSetWindowAttribute(hwnd, attr, (value as *const T).cast(), size_of::<T>() as u32) }.is_ok()
+    unsafe {
+        DwmSetWindowAttribute(
+            hwnd,
+            attr,
+            (value as *const T).cast(),
+            size_of::<T>() as u32,
+        )
+    }
+    .is_ok()
 }
 
 fn module_instance() -> Result<HINSTANCE> {
@@ -625,7 +710,8 @@ fn force_foreground(hwnd: HWND) {
         } else {
             GetWindowThreadProcessId(fg, None)
         };
-        let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, true).as_bool();
+        let attached =
+            fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, true).as_bool();
         let _ = BringWindowToTop(hwnd);
         let ok = SetForegroundWindow(hwnd).as_bool();
         let _ = SetFocus(Some(hwnd));
@@ -639,14 +725,18 @@ fn force_foreground(hwnd: HWND) {
 }
 
 /// Gives focus back to the window that had it before the overlay (we are still the
-/// foreground thread, so Windows allows it).
+/// foreground thread, so Windows allows it). Skipped if that window was closed, hidden
+/// (e.g. a popup that hides on blur) or minimized meanwhile.
 fn restore_foreground(previous: HWND) {
     if previous.0.is_null() {
         return;
     }
-    // SAFETY: `IsWindow` guards against a stale handle.
+    // SAFETY: `IsWindow` guards against a stale handle; the rest are plain queries.
     unsafe {
-        if IsWindow(Some(previous)).as_bool() {
+        if IsWindow(Some(previous)).as_bool()
+            && IsWindowVisible(previous).as_bool()
+            && !IsIconic(previous).as_bool()
+        {
             let _ = SetForegroundWindow(previous);
         }
     }

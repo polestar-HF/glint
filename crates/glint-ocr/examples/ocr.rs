@@ -20,7 +20,17 @@ fn main() {
 
     let img = image::open(&image_path).expect("cannot read image").to_rgba8();
     let t = std::time::Instant::now();
-    let ocr = PaddleOcr::load(&model_dir, PaddleOptions::default()).expect("cannot load models");
+    // Experiments: GLINT_THREADS, GLINT_BATCH, GLINT_BATCH_AREA override the defaults.
+    let env_num = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<usize>().ok());
+    let mut popts = PaddleOptions::default();
+    popts.intra_threads = env_num("GLINT_THREADS");
+    if let Some(b) = env_num("GLINT_BATCH") {
+        popts.rec_batch = b;
+    }
+    if let Some(b) = env_num("GLINT_BATCH_AREA") {
+        popts.rec_batch_max_area = b;
+    }
+    let ocr = PaddleOcr::load(&model_dir, popts).expect("cannot load models");
     println!("load: {:?}", t.elapsed());
     let opts = OcrOptions::default();
     for i in 0..runs {

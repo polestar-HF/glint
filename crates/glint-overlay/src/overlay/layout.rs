@@ -55,11 +55,19 @@ pub enum Prim {
     /// Aliased (pixel-crisp) solid fill.
     Fill { rect: Rect, color: Color },
     /// Antialiased rounded fill.
-    RoundFill { rect: Rect, radius: f32, color: Color },
+    RoundFill {
+        rect: Rect,
+        radius: f32,
+        color: Color,
+    },
     /// Nearest-neighbour magnification of `src` (frame pixels) into `dst`.
     Zoom { src: Rect, dst: Rect },
     /// One line of text centered in `rect`.
-    Text { rect: Rect, text: String, color: Color },
+    Text {
+        rect: Rect,
+        text: String,
+        color: Color,
+    },
 }
 
 pub struct Style {
@@ -146,7 +154,10 @@ impl Scene {
 
     /// Chip size for one line of text with the spec's 4×8 logical px padding.
     fn chip_size(&self, text_w: f32, text_h: f32) -> (i32, i32) {
-        (text_w.ceil() as i32 + 2 * self.px(8.0), text_h.ceil() as i32 + 2 * self.px(4.0))
+        (
+            text_w.ceil() as i32 + 2 * self.px(8.0),
+            text_h.ceil() as i32 + 2 * self.px(4.0),
+        )
     }
 
     fn size_chip(&mut self, sel: Rect, border: i32, measure: &mut dyn FnMut(&str) -> (f32, f32)) {
@@ -154,8 +165,16 @@ impl Scene {
         let (tw, th) = measure(&text);
         let (w, h) = self.chip_size(tw, th);
         let chip = geom::place_chip(sel, w, h, border + self.px(4.0), self.bounds);
-        self.out.push(Prim::RoundFill { rect: chip, radius: self.radius(), color: CHIP_BG });
-        self.out.push(Prim::Text { rect: chip, text, color: CHIP_FG });
+        self.out.push(Prim::RoundFill {
+            rect: chip,
+            radius: self.radius(),
+            color: CHIP_BG,
+        });
+        self.out.push(Prim::Text {
+            rect: chip,
+            text,
+            color: CHIP_FG,
+        });
     }
 
     fn magnifier(&mut self, c: Point, rgb: [u8; 3], measure: &mut dyn FnMut(&str) -> (f32, f32)) {
@@ -168,7 +187,13 @@ impl Scene {
         let (_, bar_h) = self.chip_size(tw, th);
         let group_w = side + 2 * outline;
         let framed_h = side + 2 * outline;
-        let group = geom::place_beside_cursor(c, group_w, framed_h + gap + bar_h, self.px(20.0), self.bounds);
+        let group = geom::place_beside_cursor(
+            c,
+            group_w,
+            framed_h + gap + bar_h,
+            self.px(20.0),
+            self.bounds,
+        );
 
         // Box: dark outline, black where the source runs off the monitor, then pixels.
         let framed = Rect::from_xywh(group.left, group.top, group_w, framed_h);
@@ -196,31 +221,65 @@ impl Scene {
         // Crosshair: tinted center row and column, and an outlined center pixel whose
         // outline contrasts with the pixel itself.
         let mid = MAG_CELLS / 2;
-        let center = Rect::from_xywh(zoom_box.left + mid * cell, zoom_box.top + mid * cell, cell, cell);
+        let center = Rect::from_xywh(
+            zoom_box.left + mid * cell,
+            zoom_box.top + mid * cell,
+            cell,
+            cell,
+        );
         let tint = self.accent.with_alpha(CROSSHAIR_ALPHA);
-        self.fill(Rect::new(zoom_box.left, center.top, center.left, center.bottom), tint);
-        self.fill(Rect::new(center.right, center.top, zoom_box.right, center.bottom), tint);
-        self.fill(Rect::new(center.left, zoom_box.top, center.right, center.top), tint);
-        self.fill(Rect::new(center.left, center.bottom, center.right, zoom_box.bottom), tint);
-        let contrast = if pixels::luminance(rgb) > 0.5 { BLACK } else { WHITE };
+        self.fill(
+            Rect::new(zoom_box.left, center.top, center.left, center.bottom),
+            tint,
+        );
+        self.fill(
+            Rect::new(center.right, center.top, zoom_box.right, center.bottom),
+            tint,
+        );
+        self.fill(
+            Rect::new(center.left, zoom_box.top, center.right, center.top),
+            tint,
+        );
+        self.fill(
+            Rect::new(center.left, center.bottom, center.right, zoom_box.bottom),
+            tint,
+        );
+        let contrast = if pixels::luminance(rgb) > 0.5 {
+            BLACK
+        } else {
+            WHITE
+        };
         for b in geom::frame_inside(center, self.px(1.0)) {
             self.fill(b, contrast);
         }
 
         // Hex line: swatch + "#RRGGBB", centered in a chip as wide as the box.
         let bar = Rect::from_xywh(group.left, framed.bottom + gap, group_w, bar_h);
-        self.out.push(Prim::RoundFill { rect: bar, radius: self.radius(), color: CHIP_BG });
+        self.out.push(Prim::RoundFill {
+            rect: bar,
+            radius: self.radius(),
+            color: CHIP_BG,
+        });
         let swatch_side = self.px(10.0);
         let swatch_gap = self.px(6.0);
         let text_w = tw.ceil() as i32;
         let content = swatch_side + swatch_gap + text_w;
         let x0 = bar.left + (bar.width() - content) / 2;
-        let swatch = Rect::from_xywh(x0, bar.top + (bar.height() - swatch_side) / 2, swatch_side, swatch_side);
+        let swatch = Rect::from_xywh(
+            x0,
+            bar.top + (bar.height() - swatch_side) / 2,
+            swatch_side,
+            swatch_side,
+        );
         self.fill(swatch, CHIP_FG.with_alpha(0.8));
         self.fill(swatch.inflate(-self.px(1.0)), Color::from_bytes(rgb));
         let text_left = swatch.right + swatch_gap;
         let text_rect = Rect::new(text_left, bar.top, text_left + text_w, bar.bottom);
-        self.out.push(Prim::Text { rect: text_rect, text: hex, color: CHIP_FG });
+        self.out.push(Prim::Text {
+            rect: text_rect,
+            text: hex,
+            color: CHIP_FG,
+        });
     }
 }
 
@@ -235,7 +294,16 @@ mod tests {
     }
 
     fn build_at(view: View, scale: f32) -> Vec<Prim> {
-        build(&view, SIZE, &Style { scale, accent: 0x2F6FEB }, Some([0x12, 0x34, 0x56]), &mut measure)
+        build(
+            &view,
+            SIZE,
+            &Style {
+                scale,
+                accent: 0x2F6FEB,
+            },
+            Some([0x12, 0x34, 0x56]),
+            &mut measure,
+        )
     }
 
     fn fills_with(prims: &[Prim], color: Color) -> Vec<Rect> {
@@ -263,7 +331,9 @@ mod tests {
         for p in prims {
             let r = match p {
                 Prim::Frozen => continue,
-                Prim::Fill { rect, .. } | Prim::RoundFill { rect, .. } | Prim::Text { rect, .. } => *rect,
+                Prim::Fill { rect, .. }
+                | Prim::RoundFill { rect, .. }
+                | Prim::Text { rect, .. } => *rect,
                 Prim::Zoom { dst, .. } => *dst,
             };
             assert_eq!(r.intersect(b), Some(r), "{p:?} leaves the monitor");
@@ -273,13 +343,28 @@ mod tests {
     #[test]
     fn idle_without_cursor_is_frozen_frame_fully_dimmed() {
         let prims = build_at(View::default(), 1.0);
-        assert_eq!(prims, vec![Prim::Frozen, Prim::Fill { rect: Rect::new(0, 0, 1920, 1080), color: DIM }]);
+        assert_eq!(
+            prims,
+            vec![
+                Prim::Frozen,
+                Prim::Fill {
+                    rect: Rect::new(0, 0, 1920, 1080),
+                    color: DIM
+                }
+            ]
+        );
     }
 
     #[test]
     fn selection_has_undimmed_hole_border_handles_and_chip() {
         let sel = Rect::new(400, 300, 600, 400);
-        let prims = build_at(View { highlight: Highlight::Selection(sel), magnifier: None }, 1.0);
+        let prims = build_at(
+            View {
+                highlight: Highlight::Selection(sel),
+                magnifier: None,
+            },
+            1.0,
+        );
         assert_eq!(prims[0], Prim::Frozen);
 
         let dim = fills_with(&prims, DIM);
@@ -291,10 +376,15 @@ mod tests {
         let accent = Color::rgb(0x2F6FEB, 1.0);
         let accent_fills = fills_with(&prims, accent);
         assert_eq!(accent_fills.len(), 4 + 8, "border bands + handle outlines");
-        assert!(accent_fills[..4].iter().all(|b| b.width() == 1 || b.height() == 1));
+        assert!(accent_fills[..4]
+            .iter()
+            .all(|b| b.width() == 1 || b.height() == 1));
         let handles = fills_with(&prims, WHITE);
         assert_eq!(handles.len(), 8);
-        assert!(handles.iter().all(|h| h.width() == 4 && h.height() == 4), "6 px handle minus 1 px edge");
+        assert!(
+            handles.iter().all(|h| h.width() == 4 && h.height() == 4),
+            "6 px handle minus 1 px edge"
+        );
 
         let t = texts(&prims);
         assert_eq!(t.len(), 1);
@@ -307,12 +397,24 @@ mod tests {
     #[test]
     fn snap_uses_inside_border_and_chip_below_when_at_top() {
         let win = Rect::new(0, 0, 1920, 1040);
-        let prims = build_at(View { highlight: Highlight::Snap(win), magnifier: None }, 1.0);
+        let prims = build_at(
+            View {
+                highlight: Highlight::Snap(win),
+                magnifier: None,
+            },
+            1.0,
+        );
         let accent = fills_with(&prims, Color::rgb(0x2F6FEB, 1.0));
         assert_eq!(accent.len(), 4);
-        assert!(accent.iter().all(|b| win.intersect(*b) == Some(*b)), "snap outline is inside");
+        assert!(
+            accent.iter().all(|b| win.intersect(*b) == Some(*b)),
+            "snap outline is inside"
+        );
         assert_eq!(accent[0].height(), 2);
-        assert!(fills_with(&prims, WHITE).is_empty(), "no handles while snapping");
+        assert!(
+            fills_with(&prims, WHITE).is_empty(),
+            "no handles while snapping"
+        );
         let t = texts(&prims);
         assert_eq!(t[0].0.top, 4, "chip below the top-left corner");
         assert_in_bounds(&prims);
@@ -321,7 +423,13 @@ mod tests {
     #[test]
     fn logical_sizes_scale_with_dpi() {
         let sel = Rect::new(400, 300, 600, 400);
-        let prims = build_at(View { highlight: Highlight::Selection(sel), magnifier: None }, 1.5);
+        let prims = build_at(
+            View {
+                highlight: Highlight::Selection(sel),
+                magnifier: None,
+            },
+            1.5,
+        );
         let accent = fills_with(&prims, Color::rgb(0x2F6FEB, 1.0));
         assert_eq!(accent[0].height(), 2, "1 px × 1.5 rounds to 2");
         assert_eq!(accent[4].width(), 9, "6 px handle × 1.5");
@@ -332,7 +440,13 @@ mod tests {
     #[test]
     fn magnifier_layout_and_flip() {
         let c = Point::new(100, 100);
-        let prims = build_at(View { highlight: Highlight::None, magnifier: Some(c) }, 1.0);
+        let prims = build_at(
+            View {
+                highlight: Highlight::None,
+                magnifier: Some(c),
+            },
+            1.0,
+        );
         let zoom = prims.iter().find_map(|p| match p {
             Prim::Zoom { src, dst } => Some((*src, *dst)),
             _ => None,
@@ -341,14 +455,23 @@ mod tests {
         assert_eq!(src, Rect::new(93, 93, 108, 108));
         assert_eq!(dst.width(), 120);
         assert_eq!(dst.height(), 120);
-        assert!(dst.left > c.x && dst.top > c.y, "bottom-right of the cursor");
+        assert!(
+            dst.left > c.x && dst.top > c.y,
+            "bottom-right of the cursor"
+        );
         let t = texts(&prims);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].1, "#123456");
         assert!(t[0].0.top > dst.bottom, "hex line under the box");
 
         let corner = Point::new(1910, 1070);
-        let prims = build_at(View { highlight: Highlight::None, magnifier: Some(corner) }, 2.0);
+        let prims = build_at(
+            View {
+                highlight: Highlight::None,
+                magnifier: Some(corner),
+            },
+            2.0,
+        );
         let (_, dst) = prims
             .iter()
             .find_map(|p| match p {
@@ -356,13 +479,22 @@ mod tests {
                 _ => None,
             })
             .expect("zoom prim");
-        assert!(dst.right <= corner.x && dst.bottom <= corner.y, "flipped to the top-left");
+        assert!(
+            dst.right <= corner.x && dst.bottom <= corner.y,
+            "flipped to the top-left"
+        );
         assert_in_bounds(&prims);
     }
 
     #[test]
     fn magnifier_at_monitor_edge_keeps_cells_aligned() {
-        let prims = build_at(View { highlight: Highlight::None, magnifier: Some(Point::new(0, 0)) }, 1.0);
+        let prims = build_at(
+            View {
+                highlight: Highlight::None,
+                magnifier: Some(Point::new(0, 0)),
+            },
+            1.0,
+        );
         let (src, dst) = prims
             .iter()
             .find_map(|p| match p {
@@ -382,9 +514,30 @@ mod tests {
 
     #[test]
     fn center_outline_contrasts_with_pixel() {
-        let view = View { highlight: Highlight::None, magnifier: Some(Point::new(500, 500)) };
-        let bright = build(&view, SIZE, &Style { scale: 1.0, accent: 0x2F6FEB }, Some([250, 250, 250]), &mut measure);
-        let dark = build(&view, SIZE, &Style { scale: 1.0, accent: 0x2F6FEB }, Some([5, 5, 5]), &mut measure);
+        let view = View {
+            highlight: Highlight::None,
+            magnifier: Some(Point::new(500, 500)),
+        };
+        let bright = build(
+            &view,
+            SIZE,
+            &Style {
+                scale: 1.0,
+                accent: 0x2F6FEB,
+            },
+            Some([250, 250, 250]),
+            &mut measure,
+        );
+        let dark = build(
+            &view,
+            SIZE,
+            &Style {
+                scale: 1.0,
+                accent: 0x2F6FEB,
+            },
+            Some([5, 5, 5]),
+            &mut measure,
+        );
         // BLACK is also the zoom box backdrop, so compare counts.
         assert!(fills_with(&bright, BLACK).len() > fills_with(&dark, BLACK).len());
         assert!(fills_with(&dark, WHITE).len() >= 4);

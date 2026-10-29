@@ -6,21 +6,24 @@
 use windows::core::{w, Result as WinResult, BOOL, PCWSTR};
 use windows::Win32::Foundation::{D2DERR_RECREATE_TARGET, HWND};
 use windows::Win32::Graphics::Direct2D::Common::{
-    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT, D2D_RECT_F, D2D_SIZE_U,
+    D2D1_ALPHA_MODE_IGNORE, D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_COLOR_F, D2D1_PIXEL_FORMAT,
+    D2D_RECT_F, D2D_SIZE_U,
 };
 use windows::Win32::Graphics::Direct2D::{
     D2D1CreateFactory, ID2D1Bitmap, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush,
-    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
-    D2D1_BITMAP_PROPERTIES, D2D1_DEBUG_LEVEL_NONE, D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_OPTIONS,
-    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
+    D2D1_ANTIALIAS_MODE_ALIASED, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE,
+    D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, D2D1_BITMAP_PROPERTIES, D2D1_DEBUG_LEVEL_NONE,
+    D2D1_DRAW_TEXT_OPTIONS_NONE, D2D1_FACTORY_OPTIONS, D2D1_FACTORY_TYPE_SINGLE_THREADED,
+    D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
     D2D1_PRESENT_OPTIONS_IMMEDIATELY, D2D1_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE,
-    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1_RENDER_TARGET_USAGE_NONE,
-    D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
+    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_TYPE_SOFTWARE,
+    D2D1_RENDER_TARGET_USAGE_NONE, D2D1_ROUNDED_RECT, D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE,
 };
 use windows::Win32::Graphics::DirectWrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_MEASURING_MODE_NATURAL,
-    DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_NORMAL,
+    DWRITE_MEASURING_MODE_NATURAL, DWRITE_PARAGRAPH_ALIGNMENT_CENTER, DWRITE_TEXT_ALIGNMENT_CENTER,
+    DWRITE_TEXT_METRICS, DWRITE_WORD_WRAPPING_NO_WRAP,
 };
 use windows::Win32::Graphics::Dxgi::Common::DXGI_FORMAT_B8G8R8A8_UNORM;
 
@@ -38,13 +41,21 @@ pub struct Gfx {
 
 impl Gfx {
     pub fn new() -> WinResult<Self> {
-        let options = D2D1_FACTORY_OPTIONS { debugLevel: D2D1_DEBUG_LEVEL_NONE };
+        let options = D2D1_FACTORY_OPTIONS {
+            debugLevel: D2D1_DEBUG_LEVEL_NONE,
+        };
         // SAFETY: factory constructors with valid arguments; `options` outlives the call.
-        let d2d = unsafe { D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, Some(&options)) }?;
+        let d2d = unsafe {
+            D2D1CreateFactory::<ID2D1Factory>(D2D1_FACTORY_TYPE_SINGLE_THREADED, Some(&options))
+        }?;
         // SAFETY: as above.
         let dwrite = unsafe { DWriteCreateFactory::<IDWriteFactory>(DWRITE_FACTORY_TYPE_SHARED) }?;
         let variable_font = has_family(&dwrite, w!("Segoe UI Variable Text"));
-        Ok(Self { d2d, dwrite, variable_font })
+        Ok(Self {
+            d2d,
+            dwrite,
+            variable_font,
+        })
     }
 
     fn family(&self) -> PCWSTR {
@@ -60,12 +71,20 @@ fn has_family(dwrite: &IDWriteFactory, name: PCWSTR) -> bool {
     let mut collection = None;
     // SAFETY: out-pointers are valid locals; `name` is a static NUL-terminated literal.
     unsafe {
-        if dwrite.GetSystemFontCollection(&mut collection, false).is_err() {
+        if dwrite
+            .GetSystemFontCollection(&mut collection, false)
+            .is_err()
+        {
             return false;
         }
-        let Some(collection) = collection else { return false };
+        let Some(collection) = collection else {
+            return false;
+        };
         let (mut index, mut exists) = (0u32, BOOL(0));
-        collection.FindFamilyName(name, &mut index, &mut exists).is_ok() && exists.as_bool()
+        collection
+            .FindFamilyName(name, &mut index, &mut exists)
+            .is_ok()
+            && exists.as_bool()
     }
 }
 
@@ -96,7 +115,11 @@ struct Device {
 
 impl Renderer {
     pub fn new(gfx: &Gfx, hwnd: HWND, scale: f32, accent: u32) -> WinResult<Self> {
-        let scale = if scale.is_finite() && scale > 0.0 { scale } else { 1.0 };
+        let scale = if scale.is_finite() && scale > 0.0 {
+            scale
+        } else {
+            1.0
+        };
         let font_px = layout::FONT_SIZE * scale;
         // SAFETY: valid arguments; the family and locale are static NUL-terminated literals.
         let format = unsafe {
@@ -116,7 +139,13 @@ impl Renderer {
             format.SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER)?;
             format.SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP)?;
         }
-        Ok(Self { hwnd, style: Style { scale, accent }, font_px, format, device: None })
+        Ok(Self {
+            hwnd,
+            style: Style { scale, accent },
+            font_px,
+            format,
+            device: None,
+        })
     }
 
     /// Draws `view` (monitor-local) over the frozen `frame` and presents it.
@@ -129,7 +158,9 @@ impl Renderer {
         };
 
         let (w, h) = (frame.rect.width, frame.rect.height);
-        let sample = view.magnifier.and_then(|p| pixels::sample_rgb(&frame.bgra, w, h, p));
+        let sample = view
+            .magnifier
+            .and_then(|p| pixels::sample_rgb(&frame.bgra, w, h, p));
         let (dwrite, format, font_px) = (&gfx.dwrite, &self.format, self.font_px);
         let mut measure = |text: &str| measure_text(dwrite, format, font_px, text);
         let size = (w as i32, h as i32);
@@ -141,7 +172,8 @@ impl Renderer {
         let end = unsafe {
             dev.target.BeginDraw();
             dev.target.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
-            dev.target.SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+            dev.target
+                .SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
             dev.target.Clear(Some(&color_f(Color::rgb(0, 1.0))));
             for p in &prims {
                 dev.execute(p, format, &full);
@@ -173,18 +205,33 @@ impl Device {
             target = create_target(gfx, hwnd, w, h, D2D1_RENDER_TARGET_TYPE_SOFTWARE)?;
         }
         let props = D2D1_BITMAP_PROPERTIES {
-            pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_IGNORE },
+            pixelFormat: D2D1_PIXEL_FORMAT {
+                format: DXGI_FORMAT_B8G8R8A8_UNORM,
+                alphaMode: D2D1_ALPHA_MODE_IGNORE,
+            },
             dpiX: 96.0,
             dpiY: 96.0,
         };
         // SAFETY: select_region checked `frame.bgra.len() == w * h * 4`, so the pointer
         // covers `h` rows of `pitch = w * 4` bytes. D2D copies the pixels before returning.
         let frozen = unsafe {
-            target.CreateBitmap(D2D_SIZE_U { width: w, height: h }, Some(frame.bgra.as_ptr().cast()), w * 4, &props)
+            target.CreateBitmap(
+                D2D_SIZE_U {
+                    width: w,
+                    height: h,
+                },
+                Some(frame.bgra.as_ptr().cast()),
+                w * 4,
+                &props,
+            )
         }?;
         // SAFETY: valid color pointer for the duration of the call.
         let brush = unsafe { target.CreateSolidColorBrush(&color_f(layout::CHIP_FG), None) }?;
-        Ok(Self { target, frozen, brush })
+        Ok(Self {
+            target,
+            frozen,
+            brush,
+        })
     }
 
     /// Executes one primitive.
@@ -199,16 +246,30 @@ impl Device {
         unsafe {
             match prim {
                 Prim::Frozen => {
-                    t.DrawBitmap(&self.frozen, Some(full), 1.0, D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR, None);
+                    t.DrawBitmap(
+                        &self.frozen,
+                        Some(full),
+                        1.0,
+                        D2D1_BITMAP_INTERPOLATION_MODE_NEAREST_NEIGHBOR,
+                        None,
+                    );
                 }
                 Prim::Fill { rect, color } => {
                     self.brush.SetColor(&color_f(*color));
                     t.FillRectangle(&rect_f(*rect), &self.brush);
                 }
-                Prim::RoundFill { rect, radius, color } => {
+                Prim::RoundFill {
+                    rect,
+                    radius,
+                    color,
+                } => {
                     self.brush.SetColor(&color_f(*color));
                     t.SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-                    let rr = D2D1_ROUNDED_RECT { rect: rect_f(*rect), radiusX: *radius, radiusY: *radius };
+                    let rr = D2D1_ROUNDED_RECT {
+                        rect: rect_f(*rect),
+                        radiusX: *radius,
+                        radiusY: *radius,
+                    };
                     t.FillRoundedRectangle(&rr, &self.brush);
                     t.SetAntialiasMode(D2D1_ANTIALIAS_MODE_ALIASED);
                 }
@@ -247,7 +308,10 @@ fn create_target(
 ) -> WinResult<ID2D1HwndRenderTarget> {
     let props = D2D1_RENDER_TARGET_PROPERTIES {
         r#type: kind,
-        pixelFormat: D2D1_PIXEL_FORMAT { format: DXGI_FORMAT_B8G8R8A8_UNORM, alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED },
+        pixelFormat: D2D1_PIXEL_FORMAT {
+            format: DXGI_FORMAT_B8G8R8A8_UNORM,
+            alphaMode: D2D1_ALPHA_MODE_PREMULTIPLIED,
+        },
         // 96 DPI: one DIP is one physical pixel.
         dpiX: 96.0,
         dpiY: 96.0,
@@ -256,7 +320,10 @@ fn create_target(
     };
     let hwnd_props = D2D1_HWND_RENDER_TARGET_PROPERTIES {
         hwnd,
-        pixelSize: D2D_SIZE_U { width: w, height: h },
+        pixelSize: D2D_SIZE_U {
+            width: w,
+            height: h,
+        },
         // Repaints are driven by input and coalesced by WM_PAINT; don't block on vblank.
         presentOptions: D2D1_PRESENT_OPTIONS_IMMEDIATELY,
     };
@@ -264,14 +331,21 @@ fn create_target(
     unsafe { gfx.d2d.CreateHwndRenderTarget(&props, &hwnd_props) }
 }
 
-fn measure_text(dwrite: &IDWriteFactory, format: &IDWriteTextFormat, font_px: f32, text: &str) -> (f32, f32) {
+fn measure_text(
+    dwrite: &IDWriteFactory,
+    format: &IDWriteTextFormat,
+    font_px: f32,
+    text: &str,
+) -> (f32, f32) {
     let wide: Vec<u16> = text.encode_utf16().collect();
     // SAFETY: `wide` and `metrics` are locals that outlive the calls.
     let metrics = unsafe {
-        dwrite.CreateTextLayout(&wide, format, 4096.0, 4096.0).and_then(|layout| {
-            let mut m = DWRITE_TEXT_METRICS::default();
-            layout.GetMetrics(&mut m).map(|()| m)
-        })
+        dwrite
+            .CreateTextLayout(&wide, format, 4096.0, 4096.0)
+            .and_then(|layout| {
+                let mut m = DWRITE_TEXT_METRICS::default();
+                layout.GetMetrics(&mut m).map(|()| m)
+            })
     };
     match metrics {
         Ok(m) => (m.width, m.height),
@@ -283,9 +357,19 @@ fn measure_text(dwrite: &IDWriteFactory, format: &IDWriteTextFormat, font_px: f3
 }
 
 fn rect_f(r: Rect) -> D2D_RECT_F {
-    D2D_RECT_F { left: r.left as f32, top: r.top as f32, right: r.right as f32, bottom: r.bottom as f32 }
+    D2D_RECT_F {
+        left: r.left as f32,
+        top: r.top as f32,
+        right: r.right as f32,
+        bottom: r.bottom as f32,
+    }
 }
 
 fn color_f(c: Color) -> D2D1_COLOR_F {
-    D2D1_COLOR_F { r: c.r, g: c.g, b: c.b, a: c.a }
+    D2D1_COLOR_F {
+        r: c.r,
+        g: c.g,
+        b: c.b,
+        a: c.a,
+    }
 }

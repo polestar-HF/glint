@@ -31,6 +31,7 @@ pub struct AppState {
     pub http: reqwest::Client,
     pub translate_cache: glint_translate::Cache,
     pub capturing: AtomicBool,
+    pub overlay_tx: std::sync::mpsc::Sender<pipeline::OverlayJob>,
     pub popup_pinned: AtomicBool,
     pub popup_hide_gen: AtomicU64,
     pub popup_anchor: Mutex<Option<popup::Anchor>>,
@@ -107,6 +108,8 @@ pub fn run() {
             let ort_dylib = resource_dir.join("onnxruntime.dll");
 
             let http = glint_translate::http_client();
+            // The worker only touches AppState once a job arrives, i.e. after `manage` below.
+            let overlay_tx = pipeline::spawn_overlay_worker(handle.clone())?;
 
             app.manage(AppState {
                 config: RwLock::new(cfg.clone()),
@@ -115,6 +118,7 @@ pub fn run() {
                 http,
                 translate_cache: glint_translate::Cache::default(),
                 capturing: AtomicBool::new(false),
+                overlay_tx,
                 popup_pinned: AtomicBool::new(false),
                 popup_hide_gen: AtomicU64::new(0),
                 popup_anchor: Mutex::new(None),

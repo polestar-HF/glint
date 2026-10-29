@@ -18,12 +18,17 @@ pub struct ThreadDpiScope {
 impl ThreadDpiScope {
     pub fn per_monitor_v2() -> Self {
         // SAFETY: takes a predefined pseudo-handle; returns NULL on failure.
-        let previous = unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
+        let previous =
+            unsafe { SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2) };
         if previous.0.is_null() {
-            log::warn!("SetThreadDpiAwarenessContext(PMv2) failed; relying on process DPI awareness");
+            log::warn!(
+                "SetThreadDpiAwarenessContext(PMv2) failed; relying on process DPI awareness"
+            );
             Self { previous: None }
         } else {
-            Self { previous: Some(previous) }
+            Self {
+                previous: Some(previous),
+            }
         }
     }
 }

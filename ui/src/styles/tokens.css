@@ -109,6 +109,15 @@
   --font-small: 'Segoe UI Variable Small', 'Segoe UI', var(--font-cjk);
   --font-display: 'Segoe UI Variable Display', 'Segoe UI', var(--font-cjk);
   --font-mono: 'Cascadia Mono', Consolas, var(--font-cjk);
+  /* Content text (OCR source, translations): Latin-first unless the content is CJK. */
+  --font-content: var(--font-text);
+}
+/* CJK content leads with the CJK face, so “” — … take their full-width forms;
+   YaHei UI and Yu Gothic UI carry Segoe-derived Latin, so mixed text stays even. */
+:lang(zh),
+:lang(ja),
+:lang(ko) {
+  --font-content: var(--font-cjk);
 }
 
 /* Content language → CJK glyph forms and the matching system face. */

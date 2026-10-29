@@ -1,6 +1,7 @@
 //! Capture → select → OCR → translate.
 
 use std::sync::atomic::Ordering;
+use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
 use glint_overlay::{Action, OverlayOptions, Outcome, Selection};
@@ -19,11 +20,39 @@ pub enum CaptureMode {
     Silent,
 }
 
+pub struct OverlayJob {
+    opts: OverlayOptions,
+    popup_was_visible: bool,
+}
+
+/// The overlay pumps its own Win32 message loop, so it runs on one long-lived thread of its
+/// own (never the Tauri main thread or a tokio worker); jobs arrive over a channel.
+pub fn spawn_overlay_worker(app: AppHandle) -> std::io::Result<Sender<OverlayJob>> {
+    let (tx, rx) = std::sync::mpsc::channel::<OverlayJob>();
+    std::thread::Builder::new().name("glint-overlay".into()).spawn(move || {
+        for job in rx {
+            if job.popup_was_visible {
+                // Give DWM a frame to actually remove the popup before BitBlt.
+                std::thread::sleep(Duration::from_millis(40));
+            }
+            let outcome = glint_overlay::capture_all()
+                .and_then(|frames| glint_overlay::select_region(frames, &job.opts));
+            app.state::<AppState>().capturing.store(false, Ordering::SeqCst);
+            match outcome {
+                Ok(Outcome::Selected(sel)) => run_session(&app, sel),
+                Ok(Outcome::Cancelled) => {}
+                Err(e) => log::error!("capture failed: {e}"),
+            }
+        }
+    })?;
+    Ok(tx)
+}
+
 /// Entry point for hotkeys, tray and the `start_capture` command.
 pub fn start_capture(app: &AppHandle, mode: CaptureMode) {
     let state = app.state::<AppState>();
     if state.capturing.swap(true, Ordering::SeqCst) {
-        return; // overlay already up
+        return; // overlay already up: ignore the repeated hotkey
     }
     let cfg = state.config();
     state.ocr.preload(cfg.ocr.engine.clone());
@@ -44,23 +73,8 @@ pub fn start_capture(app: &AppHandle, mode: CaptureMode) {
         snap_windows: cfg.overlay.snap_windows,
         show_magnifier: cfg.overlay.magnifier,
     };
-    let app = app.clone();
-    let spawned = std::thread::Builder::new().name("glint-overlay".into()).spawn(move || {
-        if popup_was_visible {
-            // Give DWM a frame to actually remove the popup before BitBlt.
-            std::thread::sleep(Duration::from_millis(40));
-        }
-        let outcome = glint_overlay::capture_all()
-            .and_then(|frames| glint_overlay::select_region(frames, &opts));
-        app.state::<AppState>().capturing.store(false, Ordering::SeqCst);
-        match outcome {
-            Ok(Outcome::Selected(sel)) => run_session(&app, sel),
-            Ok(Outcome::Cancelled) => {}
-            Err(e) => log::error!("capture failed: {e}"),
-        }
-    });
-    if let Err(e) = spawned {
-        log::error!("failed to spawn overlay thread: {e}");
+    if state.overlay_tx.send(OverlayJob { opts, popup_was_visible }).is_err() {
+        log::error!("overlay worker is gone");
         state.capturing.store(false, Ordering::SeqCst);
     }
 }

@@ -46,21 +46,35 @@ pub(crate) fn validate_frames(frames: &[MonitorFrame]) -> Result<()> {
 }
 
 /// Crops the selected `rect` (virtual-desktop px) out of monitor `monitor`'s frozen frame.
-pub(crate) fn build_selection(frames: &[MonitorFrame], rect: Rect, monitor: usize, action: Action) -> Result<Selection> {
+pub(crate) fn build_selection(
+    frames: &[MonitorFrame],
+    rect: Rect,
+    monitor: usize,
+    action: Action,
+) -> Result<Selection> {
     let frame = frames
         .get(monitor)
         .ok_or_else(|| OverlayError::Window(format!("selection on unknown monitor {monitor}")))?;
     let origin = (frame.rect.x, frame.rect.y);
     let local = rect.offset(-origin.0, -origin.1);
-    let (rgba, w, h) = pixels::crop_bgra_to_rgba(&frame.bgra, frame.rect.width, frame.rect.height, local)
-        .ok_or_else(|| OverlayError::Window(format!("selection {rect:?} is outside its monitor")))?;
+    let (rgba, w, h) =
+        pixels::crop_bgra_to_rgba(&frame.bgra, frame.rect.width, frame.rect.height, local)
+            .ok_or_else(|| {
+                OverlayError::Window(format!("selection {rect:?} is outside its monitor"))
+            })?;
     let clipped = Rect::new(0, 0, frame.rect.width as i32, frame.rect.height as i32)
         .intersect(local)
         .unwrap_or(local)
         .offset(origin.0, origin.1);
     let image = RgbaImage::from_raw(w, h, rgba)
         .ok_or_else(|| OverlayError::Window("cropped buffer has the wrong size".into()))?;
-    Ok(Selection { action, rect: clipped.to_phys(), image, scale: frame.scale, work_area: frame.work_area })
+    Ok(Selection {
+        action,
+        rect: clipped.to_phys(),
+        image,
+        scale: frame.scale,
+        work_area: frame.work_area,
+    })
 }
 
 #[cfg(test)]
@@ -76,8 +90,18 @@ mod tests {
             }
         }
         MonitorFrame {
-            rect: PhysRect { x, y, width: w, height: h },
-            work_area: PhysRect { x, y, width: w, height: h - 4 },
+            rect: PhysRect {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
+            work_area: PhysRect {
+                x,
+                y,
+                width: w,
+                height: h - 4,
+            },
             scale: 1.5,
             bgra,
         }
@@ -101,7 +125,15 @@ mod tests {
         let frames = vec![frame(0, 0, 16, 16), frame(-16, -8, 16, 16)];
         let rect = Rect::new(-12, -6, -8, -2); // local (4, 2) .. (8, 6)
         let sel = build_selection(&frames, rect, 1, Action::OcrOnly).expect("selection");
-        assert_eq!(sel.rect, PhysRect { x: -12, y: -6, width: 4, height: 4 });
+        assert_eq!(
+            sel.rect,
+            PhysRect {
+                x: -12,
+                y: -6,
+                width: 4,
+                height: 4
+            }
+        );
         assert_eq!(sel.image.dimensions(), (4, 4));
         // Top-left pixel: local (4, 2) -> B=4, G=2, R=0xAA -> RGBA (0xAA, 2, 4, 255).
         assert_eq!(sel.image.get_pixel(0, 0).0, [0xAA, 2, 4, 255]);
@@ -113,8 +145,17 @@ mod tests {
     #[test]
     fn selection_is_clipped_and_validated() {
         let frames = vec![frame(0, 0, 16, 16)];
-        let sel = build_selection(&frames, Rect::new(10, 10, 40, 40), 0, Action::Translate).expect("selection");
-        assert_eq!(sel.rect, PhysRect { x: 10, y: 10, width: 6, height: 6 });
+        let sel = build_selection(&frames, Rect::new(10, 10, 40, 40), 0, Action::Translate)
+            .expect("selection");
+        assert_eq!(
+            sel.rect,
+            PhysRect {
+                x: 10,
+                y: 10,
+                width: 6,
+                height: 6
+            }
+        );
         assert!(build_selection(&frames, Rect::new(20, 20, 30, 30), 0, Action::Translate).is_err());
         assert!(build_selection(&frames, Rect::new(0, 0, 4, 4), 3, Action::Translate).is_err());
     }

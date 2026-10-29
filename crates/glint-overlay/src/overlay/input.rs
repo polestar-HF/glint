@@ -60,7 +60,11 @@ pub fn split_lparam(lparam: isize) -> (i32, i32) {
 pub enum Finish {
     Cancel,
     /// `rect` is in virtual-desktop pixels and lies inside monitor `monitor`.
-    Select { rect: Rect, monitor: usize, action: Action },
+    Select {
+        rect: Rect,
+        monitor: usize,
+        action: Action,
+    },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,7 +83,10 @@ pub struct Response {
 
 impl Response {
     fn finish(f: Finish) -> Self {
-        Self { finish: Some(f), ..Self::default() }
+        Self {
+            finish: Some(f),
+            ..Self::default()
+        }
     }
 }
 
@@ -149,8 +156,21 @@ pub struct Interaction {
 }
 
 impl Interaction {
-    pub fn new(monitors: Vec<Rect>, targets: Vec<Rect>, default_action: Action, magnifier: bool) -> Self {
-        Self { monitors, targets, default_action, magnifier, cursor: None, press: None, cancel_armed: false }
+    pub fn new(
+        monitors: Vec<Rect>,
+        targets: Vec<Rect>,
+        default_action: Action,
+        magnifier: bool,
+    ) -> Self {
+        Self {
+            monitors,
+            targets,
+            default_action,
+            magnifier,
+            cursor: None,
+            press: None,
+            cancel_armed: false,
+        }
     }
 
     pub fn monitor_at(&self, p: Point) -> Option<usize> {
@@ -170,7 +190,10 @@ impl Interaction {
 
     /// Drag rectangle for the current gesture, clipped to the starting monitor.
     fn drag_rect(&self, press: &Press, to: Point) -> Rect {
-        let to = self.monitors.get(press.monitor).map_or(to, |m| m.clamp_point(to));
+        let to = self
+            .monitors
+            .get(press.monitor)
+            .map_or(to, |m| m.clamp_point(to));
         Rect::spanning(press.start, to)
     }
 
@@ -213,8 +236,15 @@ impl Interaction {
         // Starting a drag disarms a pending right-click cancel.
         self.cancel_armed = false;
         let snapped = self.snap_at(p).map(|(r, _)| r);
-        self.press = Some(Press { start: p, monitor, snapped });
-        Response { capture: Some(Capture::Set), ..Response::default() }
+        self.press = Some(Press {
+            start: p,
+            monitor,
+            snapped,
+        });
+        Response {
+            capture: Some(Capture::Set),
+            ..Response::default()
+        }
     }
 
     pub fn left_up(&mut self, p: Point) -> Response {
@@ -227,7 +257,11 @@ impl Interaction {
             monitor: press.monitor,
             action: self.default_action,
         });
-        Response { capture: Some(Capture::Release), move_cursor: None, finish }
+        Response {
+            capture: Some(Capture::Release),
+            move_cursor: None,
+            finish,
+        }
     }
 
     /// Right button down: resets a drag in progress at once; otherwise arms a cancel
@@ -238,7 +272,10 @@ impl Interaction {
         self.cursor = Some(p);
         if self.press.take().is_some() {
             self.cancel_armed = false;
-            Response { capture: Some(Capture::Release), ..Response::default() }
+            Response {
+                capture: Some(Capture::Release),
+                ..Response::default()
+            }
         } else {
             self.cancel_armed = true;
             Response::default()
@@ -265,17 +302,32 @@ impl Interaction {
         match key {
             Key::Escape => Response::finish(Finish::Cancel),
             Key::Enter | Key::Copy => {
-                let action = if key == Key::Copy { Action::CopyText } else { self.default_action };
+                let action = if key == Key::Copy {
+                    Action::CopyText
+                } else {
+                    self.default_action
+                };
                 match self.confirm_target() {
                     Some((rect, monitor)) => {
                         let capture = self.press.take().map(|_| Capture::Release);
-                        Response { capture, move_cursor: None, finish: Some(Finish::Select { rect, monitor, action }) }
+                        Response {
+                            capture,
+                            move_cursor: None,
+                            finish: Some(Finish::Select {
+                                rect,
+                                monitor,
+                                action,
+                            }),
+                        }
                     }
                     None => Response::default(),
                 }
             }
             Key::Nudge(dx, dy) => match self.cursor {
-                Some(c) => Response { move_cursor: Some(c.offset(dx, dy)), ..Response::default() },
+                Some(c) => Response {
+                    move_cursor: Some(c.offset(dx, dy)),
+                    ..Response::default()
+                },
                 None => Response::default(),
             },
         }
@@ -298,10 +350,15 @@ impl Interaction {
                 } else {
                     press.snapped.map_or(Highlight::None, Highlight::Snap)
                 };
-                View { highlight, magnifier: self.magnifier.then_some(cursor) }
+                View {
+                    highlight,
+                    magnifier: self.magnifier.then_some(cursor),
+                }
             }
             (None, Some(cursor)) if monitor.contains(cursor) => View {
-                highlight: self.snap_at(cursor).map_or(Highlight::None, |(r, _)| Highlight::Snap(r)),
+                highlight: self
+                    .snap_at(cursor)
+                    .map_or(Highlight::None, |(r, _)| Highlight::Snap(r)),
                 magnifier: self.magnifier.then_some(cursor),
             },
             (None, _) => View::default(),
@@ -318,16 +375,20 @@ mod tests {
 
     fn setup() -> Interaction {
         let targets = vec![
-            Rect::new(100, 100, 500, 400),      // top-most window
-            Rect::new(-300, 50, 300, 600),      // straddles both monitors
-            Rect::new(-1920, 0, 2560, 1440),    // desktop
+            Rect::new(100, 100, 500, 400),   // top-most window
+            Rect::new(-300, 50, 300, 600),   // straddles both monitors
+            Rect::new(-1920, 0, 2560, 1440), // desktop
         ];
         Interaction::new(vec![LEFT, MAIN], targets, Action::Translate, true)
     }
 
     fn selected(r: Response) -> Option<(Rect, usize, Action)> {
         match r.finish {
-            Some(Finish::Select { rect, monitor, action }) => Some((rect, monitor, action)),
+            Some(Finish::Select {
+                rect,
+                monitor,
+                action,
+            }) => Some((rect, monitor, action)),
             _ => None,
         }
     }
@@ -336,14 +397,23 @@ mod tests {
     fn hover_snaps_to_topmost_window_clipped_to_monitor() {
         let mut ix = setup();
         ix.pointer_moved(Point::new(200, 200));
-        assert_eq!(ix.view(1).highlight, Highlight::Snap(Rect::new(100, 100, 500, 400)));
+        assert_eq!(
+            ix.view(1).highlight,
+            Highlight::Snap(Rect::new(100, 100, 500, 400))
+        );
         assert_eq!(ix.view(1).magnifier, Some(Point::new(200, 200)));
         assert_eq!(ix.view(0), View::default(), "other monitor shows nothing");
 
         ix.pointer_moved(Point::new(50, 500));
-        assert_eq!(ix.view(1).highlight, Highlight::Snap(Rect::new(0, 50, 300, 600)));
+        assert_eq!(
+            ix.view(1).highlight,
+            Highlight::Snap(Rect::new(0, 50, 300, 600))
+        );
         ix.pointer_moved(Point::new(-50, 500));
-        assert_eq!(ix.view(0).highlight, Highlight::Snap(Rect::new(-300, 50, 0, 600)));
+        assert_eq!(
+            ix.view(0).highlight,
+            Highlight::Snap(Rect::new(-300, 50, 0, 600))
+        );
         assert_eq!(ix.view(1), View::default());
     }
 
@@ -351,10 +421,16 @@ mod tests {
     fn click_selects_snapped_window() {
         let mut ix = setup();
         ix.pointer_moved(Point::new(200, 200));
-        assert_eq!(ix.left_down(Point::new(200, 200)).capture, Some(Capture::Set));
+        assert_eq!(
+            ix.left_down(Point::new(200, 200)).capture,
+            Some(Capture::Set)
+        );
         let r = ix.left_up(Point::new(202, 201)); // jitter below 4 px
         assert_eq!(r.capture, Some(Capture::Release));
-        assert_eq!(selected(r), Some((Rect::new(100, 100, 500, 400), 1, Action::Translate)));
+        assert_eq!(
+            selected(r),
+            Some((Rect::new(100, 100, 500, 400), 1, Action::Translate))
+        );
     }
 
     #[test]
@@ -362,9 +438,15 @@ mod tests {
         let mut ix = setup();
         ix.left_down(Point::new(1000, 800));
         ix.pointer_moved(Point::new(1010, 805));
-        assert_eq!(ix.view(1).highlight, Highlight::Selection(Rect::new(1000, 800, 1011, 806)));
+        assert_eq!(
+            ix.view(1).highlight,
+            Highlight::Selection(Rect::new(1000, 800, 1011, 806))
+        );
         let r = ix.left_up(Point::new(1199, 899));
-        assert_eq!(selected(r), Some((Rect::new(1000, 800, 1200, 900), 1, Action::Translate)));
+        assert_eq!(
+            selected(r),
+            Some((Rect::new(1000, 800, 1200, 900), 1, Action::Translate))
+        );
     }
 
     #[test]
@@ -393,11 +475,21 @@ mod tests {
         ix.left_down(Point::new(-100, 100));
         ix.pointer_moved(Point::new(400, 300));
         let v = ix.view(0);
-        assert_eq!(v.highlight, Highlight::Selection(Rect::new(-100, 100, 0, 301)));
-        assert_eq!(v.magnifier, Some(Point::new(-1, 300)), "magnifier follows the clamped point");
+        assert_eq!(
+            v.highlight,
+            Highlight::Selection(Rect::new(-100, 100, 0, 301))
+        );
+        assert_eq!(
+            v.magnifier,
+            Some(Point::new(-1, 300)),
+            "magnifier follows the clamped point"
+        );
         assert_eq!(ix.view(1), View::default());
         let r = ix.left_up(Point::new(400, 300));
-        assert_eq!(selected(r), Some((Rect::new(-100, 100, 0, 301), 0, Action::Translate)));
+        assert_eq!(
+            selected(r),
+            Some((Rect::new(-100, 100, 0, 301), 0, Action::Translate))
+        );
     }
 
     #[test]
@@ -414,14 +506,26 @@ mod tests {
         ix.left_down(Point::new(10, 10));
         ix.pointer_moved(Point::new(300, 300));
         let r = ix.right_down(Point::new(300, 300));
-        assert_eq!(r, Response { capture: Some(Capture::Release), ..Response::default() });
-        assert!(matches!(ix.view(1).highlight, Highlight::Snap(_)), "back to hover");
+        assert_eq!(
+            r,
+            Response {
+                capture: Some(Capture::Release),
+                ..Response::default()
+            }
+        );
+        assert!(
+            matches!(ix.view(1).highlight, Highlight::Snap(_)),
+            "back to hover"
+        );
         // Neither the matching right-up nor the later left-up does anything.
         assert_eq!(ix.right_up(Point::new(300, 300)), Response::default());
         assert_eq!(ix.left_up(Point::new(300, 300)).finish, None);
         // A second right-click cancels, on button-up.
         assert_eq!(ix.right_down(Point::new(300, 300)), Response::default());
-        assert_eq!(ix.right_up(Point::new(300, 300)).finish, Some(Finish::Cancel));
+        assert_eq!(
+            ix.right_up(Point::new(300, 300)).finish,
+            Some(Finish::Cancel)
+        );
     }
 
     #[test]
@@ -449,7 +553,10 @@ mod tests {
         assert_eq!(ix.key(Key::Enter).finish, None, "no cursor yet");
         ix.pointer_moved(Point::new(200, 200));
         let r = ix.key(Key::Enter);
-        assert_eq!(selected(r), Some((Rect::new(100, 100, 500, 400), 1, Action::Translate)));
+        assert_eq!(
+            selected(r),
+            Some((Rect::new(100, 100, 500, 400), 1, Action::Translate))
+        );
         assert_eq!(r.capture, None);
     }
 
@@ -457,13 +564,19 @@ mod tests {
     fn ctrl_c_copies_snapped_window_or_selection() {
         let mut ix = setup();
         ix.pointer_moved(Point::new(200, 200));
-        assert_eq!(selected(ix.key(Key::Copy)).map(|s| s.2), Some(Action::CopyText));
+        assert_eq!(
+            selected(ix.key(Key::Copy)).map(|s| s.2),
+            Some(Action::CopyText)
+        );
 
         ix.left_down(Point::new(1000, 1000));
         ix.pointer_moved(Point::new(1100, 1100));
         let r = ix.key(Key::Copy);
         assert_eq!(r.capture, Some(Capture::Release));
-        assert_eq!(selected(r), Some((Rect::new(1000, 1000, 1101, 1101), 1, Action::CopyText)));
+        assert_eq!(
+            selected(r),
+            Some((Rect::new(1000, 1000, 1101, 1101), 1, Action::CopyText))
+        );
     }
 
     #[test]
@@ -478,8 +591,14 @@ mod tests {
         let mut ix = setup();
         assert_eq!(ix.key(Key::Nudge(1, 0)).move_cursor, None);
         ix.pointer_moved(Point::new(10, 10));
-        assert_eq!(ix.key(Key::Nudge(-1, 0)).move_cursor, Some(Point::new(9, 10)));
-        assert_eq!(ix.key(Key::Nudge(0, 1)).move_cursor, Some(Point::new(10, 11)));
+        assert_eq!(
+            ix.key(Key::Nudge(-1, 0)).move_cursor,
+            Some(Point::new(9, 10))
+        );
+        assert_eq!(
+            ix.key(Key::Nudge(0, 1)).move_cursor,
+            Some(Point::new(10, 11))
+        );
     }
 
     #[test]
@@ -500,9 +619,15 @@ mod tests {
 
     #[test]
     fn view_to_local() {
-        let v = View { highlight: Highlight::Selection(Rect::new(-100, 10, -50, 20)), magnifier: Some(Point::new(-60, 15)) };
+        let v = View {
+            highlight: Highlight::Selection(Rect::new(-100, 10, -50, 20)),
+            magnifier: Some(Point::new(-60, 15)),
+        };
         let l = v.to_local(Point::new(-1920, 0));
-        assert_eq!(l.highlight, Highlight::Selection(Rect::new(1820, 10, 1870, 20)));
+        assert_eq!(
+            l.highlight,
+            Highlight::Selection(Rect::new(1820, 10, 1870, 20))
+        );
         assert_eq!(l.magnifier, Some(Point::new(1860, 15)));
     }
 
@@ -523,7 +648,11 @@ mod tests {
         assert_eq!(map_key(0x0D, false, false, true), None);
         assert_eq!(map_key(0x43, true, false, true), None);
         assert_eq!(map_key(0x1B, false, false, true), Some(Key::Escape));
-        assert_eq!(map_key(0x27, false, false, true), Some(Key::Nudge(1, 0)), "arrows auto-repeat");
+        assert_eq!(
+            map_key(0x27, false, false, true),
+            Some(Key::Nudge(1, 0)),
+            "arrows auto-repeat"
+        );
     }
 
     #[test]

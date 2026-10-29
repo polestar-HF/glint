@@ -47,8 +47,18 @@ fn write_opaque(dst: &mut [MaybeUninit<u8>], src: &[u32]) -> usize {
 /// Crops `rect` (in frame-local pixels, clipped to the frame) out of a top-down BGRA
 /// frame of `width`×`height` and returns tightly packed RGBA with alpha 255, plus the
 /// clipped size.
-pub fn crop_bgra_to_rgba(bgra: &[u8], width: u32, height: u32, rect: Rect) -> Option<(Vec<u8>, u32, u32)> {
-    let bounds = Rect::new(0, 0, i32::try_from(width).ok()?, i32::try_from(height).ok()?);
+pub fn crop_bgra_to_rgba(
+    bgra: &[u8],
+    width: u32,
+    height: u32,
+    rect: Rect,
+) -> Option<(Vec<u8>, u32, u32)> {
+    let bounds = Rect::new(
+        0,
+        0,
+        i32::try_from(width).ok()?,
+        i32::try_from(height).ok()?,
+    );
     let r = rect.intersect(bounds)?;
     let stride = width as usize * 4;
     if bgra.len() < stride * height as usize {
@@ -96,7 +106,9 @@ mod tests {
     }
 
     fn sample_src() -> Vec<u32> {
-        (0..37u8).map(|i| bgra_pixel(i, i.wrapping_mul(3), 255 - i, i)).collect()
+        (0..37u8)
+            .map(|i| bgra_pixel(i, i.wrapping_mul(3), 255 - i, i))
+            .collect()
     }
 
     fn assert_opaque_copy(bytes: &[u8]) {
@@ -121,11 +133,18 @@ mod tests {
             let written = write_opaque(&mut buf[shift..], &src);
             assert_eq!(written, src.len() * 4);
             // SAFETY: every byte was initialized by `vec![MaybeUninit::new(0)]`.
-            let bytes: Vec<u8> = buf[shift..].iter().map(|b| unsafe { b.assume_init() }).collect();
+            let bytes: Vec<u8> = buf[shift..]
+                .iter()
+                .map(|b| unsafe { b.assume_init() })
+                .collect();
             assert_opaque_copy(&bytes);
         }
         let mut short = vec![MaybeUninit::new(9u8); 10];
-        assert_eq!(write_opaque(&mut short, &src), 8, "only whole pixels that fit");
+        assert_eq!(
+            write_opaque(&mut short, &src),
+            8,
+            "only whole pixels that fit"
+        );
     }
 
     fn test_frame(w: u32, h: u32) -> Vec<u8> {

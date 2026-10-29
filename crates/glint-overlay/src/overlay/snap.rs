@@ -36,7 +36,10 @@ pub fn snapshot() -> Vec<Rect> {
 
     // SAFETY: plain query with no preconditions.
     let pid = unsafe { GetCurrentProcessId() };
-    let mut ctx = Ctx { pid, out: Vec::with_capacity(64) };
+    let mut ctx = Ctx {
+        pid,
+        out: Vec::with_capacity(64),
+    };
     // SAFETY: `visit` matches WNDENUMPROC and `ctx` stays alive for the whole call.
     if let Err(e) = unsafe { EnumWindows(Some(visit), LPARAM(&mut ctx as *mut Ctx as isize)) } {
         log::warn!("EnumWindows failed, window snapping limited: {e}");
@@ -48,10 +51,12 @@ pub fn snapshot() -> Vec<Rect> {
 fn window_bounds(hwnd: windows::Win32::Foundation::HWND, own_pid: u32) -> Option<Rect> {
     use std::ffi::c_void;
     use windows::Win32::Foundation::RECT;
-    use windows::Win32::Graphics::Dwm::{DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS};
+    use windows::Win32::Graphics::Dwm::{
+        DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
+    };
     use windows::Win32::UI::WindowsAndMessaging::{
-        GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible, GWL_EXSTYLE,
-        WS_EX_TRANSPARENT,
+        GetWindowLongW, GetWindowRect, GetWindowThreadProcessId, IsIconic, IsWindowVisible,
+        GWL_EXSTYLE, WS_EX_TRANSPARENT,
     };
 
     // SAFETY (whole block): every call is a read-only query on a window handle handed to
@@ -71,14 +76,27 @@ fn window_bounds(hwnd: windows::Win32::Foundation::HWND, own_pid: u32) -> Option
         }
         let mut cloaked = 0u32;
         let size = std::mem::size_of::<u32>() as u32;
-        if DwmGetWindowAttribute(hwnd, DWMWA_CLOAKED, &mut cloaked as *mut u32 as *mut c_void, size).is_ok()
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_CLOAKED,
+            &mut cloaked as *mut u32 as *mut c_void,
+            size,
+        )
+        .is_ok()
             && cloaked != 0
         {
             return None;
         }
         let mut r = RECT::default();
         let size = std::mem::size_of::<RECT>() as u32;
-        if DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &mut r as *mut RECT as *mut c_void, size).is_err() {
+        if DwmGetWindowAttribute(
+            hwnd,
+            DWMWA_EXTENDED_FRAME_BOUNDS,
+            &mut r as *mut RECT as *mut c_void,
+            size,
+        )
+        .is_err()
+        {
             GetWindowRect(hwnd, &mut r).ok()?;
         }
         let rect = Rect::new(r.left, r.top, r.right, r.bottom);
@@ -95,7 +113,11 @@ mod tests {
         let targets = [Rect::new(10, 10, 20, 20), Rect::new(0, 0, 100, 100)];
         assert_eq!(hit_test(&targets, Point::new(15, 15)), Some(targets[0]));
         assert_eq!(hit_test(&targets, Point::new(50, 50)), Some(targets[1]));
-        assert_eq!(hit_test(&targets, Point::new(20, 20)), Some(targets[1]), "right/bottom edges are exclusive");
+        assert_eq!(
+            hit_test(&targets, Point::new(20, 20)),
+            Some(targets[1]),
+            "right/bottom edges are exclusive"
+        );
         assert_eq!(hit_test(&targets, Point::new(-1, 0)), None);
         assert_eq!(hit_test(&[], Point::new(0, 0)), None);
     }

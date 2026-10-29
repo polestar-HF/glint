@@ -217,11 +217,13 @@ html.preview-hidden #app {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: var(--font-content);
   font-size: 13px;
   color: var(--text-3);
 }
 .sec-actions {
   display: flex;
+  margin-left: auto;
   opacity: 0;
   transition: opacity var(--dur-1) var(--ease-std);
 }
@@ -238,6 +240,7 @@ html.preview-hidden #app {
 .text {
   display: block;
   margin-top: 2px;
+  font-family: var(--font-content);
   font-size: var(--content-size);
   line-height: var(--content-lh);
   color: var(--text-quiet);
@@ -267,6 +270,7 @@ textarea.src-text {
   background: transparent;
   resize: none;
   field-sizing: content;
+  font-family: var(--font-content);
   color: var(--text-2);
   caret-color: var(--accent);
   transition: color var(--dur-1) var(--ease-std);

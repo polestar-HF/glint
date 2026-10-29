@@ -12,9 +12,9 @@ use std::ptr::null_mut;
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT, TRUE};
 use windows::Win32::Graphics::Gdi::{
-    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors, GdiFlush, GetDC,
-    GetMonitorInfoW, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, HBITMAP,
-    HDC, HGDIOBJ, HMONITOR, MONITORINFO, SRCCOPY,
+    BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors,
+    GdiFlush, GetDC, GetMonitorInfoW, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
+    BI_RGB, CAPTUREBLT, DIB_RGB_COLORS, HBITMAP, HDC, HGDIOBJ, HMONITOR, MONITORINFO, SRCCOPY,
 };
 use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
@@ -36,11 +36,19 @@ pub fn capture_all() -> Result<Vec<MonitorFrame>> {
     }
     let screen = ScreenDc::get()?;
     let mem = MemDc::compatible_with(&screen)?;
-    monitors.iter().map(|m| capture_monitor(&screen, &mem, m)).collect()
+    monitors
+        .iter()
+        .map(|m| capture_monitor(&screen, &mem, m))
+        .collect()
 }
 
 fn enumerate_monitors() -> Result<Vec<MonitorDesc>> {
-    unsafe extern "system" fn collect(monitor: HMONITOR, _: HDC, _: *mut RECT, data: LPARAM) -> BOOL {
+    unsafe extern "system" fn collect(
+        monitor: HMONITOR,
+        _: HDC,
+        _: *mut RECT,
+        data: LPARAM,
+    ) -> BOOL {
         // SAFETY: `data` is the `&mut Vec<HMONITOR>` passed below; EnumDisplayMonitors
         // calls back synchronously while it is alive.
         let list = unsafe { &mut *(data.0 as *mut Vec<HMONITOR>) };
@@ -50,14 +58,24 @@ fn enumerate_monitors() -> Result<Vec<MonitorDesc>> {
 
     let mut handles: Vec<HMONITOR> = Vec::new();
     // SAFETY: `collect` matches MONITORENUMPROC and `handles` outlives the call.
-    let ok = unsafe { EnumDisplayMonitors(None, None, Some(collect), LPARAM(&mut handles as *mut Vec<HMONITOR> as isize)) };
+    let ok = unsafe {
+        EnumDisplayMonitors(
+            None,
+            None,
+            Some(collect),
+            LPARAM(&mut handles as *mut Vec<HMONITOR> as isize),
+        )
+    };
     if !ok.as_bool() {
         return Err(OverlayError::Capture(last_error("EnumDisplayMonitors")));
     }
 
     let mut out = Vec::with_capacity(handles.len());
     for handle in handles {
-        let mut info = MONITORINFO { cbSize: size_of::<MONITORINFO>() as u32, ..Default::default() };
+        let mut info = MONITORINFO {
+            cbSize: size_of::<MONITORINFO>() as u32,
+            ..Default::default()
+        };
         // SAFETY: `info` is a properly sized MONITORINFO with cbSize set.
         if !unsafe { GetMonitorInfoW(handle, &mut info) }.as_bool() {
             log::warn!("{}", last_error("GetMonitorInfoW"));
@@ -65,7 +83,9 @@ fn enumerate_monitors() -> Result<Vec<MonitorDesc>> {
         }
         let (mut dpi_x, mut dpi_y) = (96u32, 96u32);
         // SAFETY: out-pointers are locals.
-        if let Err(e) = unsafe { GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) } {
+        if let Err(e) =
+            unsafe { GetDpiForMonitor(handle, MDT_EFFECTIVE_DPI, &mut dpi_x, &mut dpi_y) }
+        {
             log::warn!("GetDpiForMonitor failed, assuming 96 DPI: {e}");
             dpi_x = 96;
         }
@@ -83,7 +103,10 @@ fn enumerate_monitors() -> Result<Vec<MonitorDesc>> {
 fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<MonitorFrame> {
     let (w, h) = (m.rect.width(), m.rect.height());
     if w == 0 || h == 0 {
-        return Err(OverlayError::Capture(format!("empty monitor rect {:?}", m.rect)));
+        return Err(OverlayError::Capture(format!(
+            "empty monitor rect {:?}",
+            m.rect
+        )));
     }
     let bmi = BITMAPINFO {
         bmiHeader: BITMAPINFOHEADER {
@@ -103,13 +126,27 @@ fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<Mo
         .map_err(|e| OverlayError::Capture(format!("CreateDIBSection {w}x{h}: {e}")))?;
     let dib = Bitmap(dib);
     if bits.is_null() || !bits.cast::<u32>().is_aligned() {
-        return Err(OverlayError::Capture("CreateDIBSection returned unusable bits".into()));
+        return Err(OverlayError::Capture(
+            "CreateDIBSection returned unusable bits".into(),
+        ));
     }
 
     let _selected = Selection::select(mem, &dib)?;
     // SAFETY: both DCs are live; the destination bitmap is exactly w × h.
-    unsafe { BitBlt(mem.0, 0, 0, w, h, Some(screen.0), m.rect.left, m.rect.top, SRCCOPY | CAPTUREBLT) }
-        .map_err(|e| OverlayError::Capture(format!("BitBlt: {e}")))?;
+    unsafe {
+        BitBlt(
+            mem.0,
+            0,
+            0,
+            w,
+            h,
+            Some(screen.0),
+            m.rect.left,
+            m.rect.top,
+            SRCCOPY | CAPTUREBLT,
+        )
+    }
+    .map_err(|e| OverlayError::Capture(format!("BitBlt: {e}")))?;
     // SAFETY: no preconditions. Makes sure the blit has landed before the CPU reads.
     let _ = unsafe { GdiFlush() };
 
@@ -120,7 +157,12 @@ fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<Mo
     let src = unsafe { std::slice::from_raw_parts(bits.cast::<u32>(), n) };
     let bgra = pixels::to_opaque_bgra(src);
 
-    Ok(MonitorFrame { rect: m.rect.to_phys(), work_area: m.work.to_phys(), scale: m.scale, bgra })
+    Ok(MonitorFrame {
+        rect: m.rect.to_phys(),
+        work_area: m.work.to_phys(),
+        scale: m.scale,
+        bgra,
+    })
 }
 
 /// The screen DC, released on drop.

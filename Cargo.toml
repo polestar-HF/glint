@@ -36,3 +36,10 @@ panic = "abort"
 # Keep image/ONNX math fast even in debug builds.
 [profile.dev.package."*"]
 opt-level = 2
+
+# Workspace members are not covered by "*": the 4K capture copy and overlay scene need it.
+[profile.dev.package.glint-overlay]
+opt-level = 3
+
+[profile.dev.package.glint-ocr]
+opt-level = 3

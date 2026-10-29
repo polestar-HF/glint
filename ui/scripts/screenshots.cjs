@@ -63,7 +63,7 @@ const popupScenes = [
   { name: 'popup-done', q: 'scene=done', hover: '.result.primary' },
   { name: 'popup-error', q: 'scene=error' },
   { name: 'popup-ocr', q: 'scene=ocr' },
-  { name: 'popup-langmenu', q: 'scene=done', click: '.lang-btn:nth-of-type(2)' },
+  { name: 'popup-langmenu', q: 'scene=done', click: '.lang-btn >> nth=1' },
   { name: 'popup-edited', q: 'scene=done', edit: true },
   { name: 'popup-notext', q: 'scene=notext' },
   { name: 'popup-mica', q: 'scene=error&mica' },
