@@ -122,9 +122,25 @@ jobs:
       # App-local VC++ runtime: copied from the runner's Visual Studio
       # redistributable folder and checked (size, Microsoft Authenticode
       # signature). Release builds only ever use these CI-copied files.
+      # Failures are surfaced as annotations (readable through the checks API
+      # without downloading logs), together with what the redist tree holds.
       - name: Copy VC++ runtime DLLs
         shell: pwsh
-        run: ./scripts/fetch-vcrt.ps1
+        run: |
+          try {
+            ./scripts/fetch-vcrt.ps1
+          } catch {
+            Write-Host "::error title=fetch-vcrt::$($_.Exception.Message)"
+            $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+            $vs = & $vswhere -latest -products * -property installationPath
+            Write-Host "::error title=fetch-vcrt vs::installationPath=$vs VCToolsRedistDir=$env:VCToolsRedistDir"
+            $redist = Join-Path $vs 'VC/Redist/MSVC'
+            $tree = Get-ChildItem -LiteralPath $redist -Recurse -Depth 3 -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match '\\x64\\' -and ($_.Name -like '*.CRT' -or $_.Name -like '*140*.dll') } |
+              ForEach-Object { $_.FullName.Substring($redist.Length) }
+            Write-Host "::error title=fetch-vcrt tree::$($tree -join ' | ')"
+            exit 1
+          }
 
       # rust-cache does not keep the resources tauri-build copied into
       # target/release, but can keep a build-script run that looks up to date
