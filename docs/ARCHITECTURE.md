@@ -183,4 +183,15 @@ The `EngineConfig` fields are defined in `glint-translate/src/lib.rs`.
 
 ## Contract change requests
 
-_(none yet)_
+### glint-translate (translation engineer)
+
+1. **`TranslateRequest` gains `secondary_lang: Option<String>`** (asked for by the lead). Code that builds the struct with a literal must add the field, or use `TranslateRequest::new(text, source, target)` or `..Default::default()`. The app should fill it from `translate.secondaryLang`. With source `auto`, or a source equal to the target, the engines translate into this language when the text is already in the target language.
+2. Everything else is additive: `translate_all` and `EngineEvent`, `Cache` and `build_cached`, `http_client()` (use it so the 5 s connect timeout applies), `default_engines()`, `langs`, and `TranslateError::user_message()` (a short UI-ready string; `Display` keeps its technical prefix). The `Translator` trait and `build` are unchanged.
+
+### glint-overlay (capture engineer)
+
+1. **Root `Cargo.toml` (lead): add `[profile.dev.package.glint-overlay] opt-level = 3`.** `[profile.dev.package."*"]` does not cover workspace members. Without it, debug builds run the per-pixel capture copy (alpha forced to 255) and the overlay scene unoptimized, which adds tens of ms on a 4K screen. Release builds are unaffected. There is no API change.
+2. Behaviour notes, with no signature change:
+   - `select_region` returns `OverlayError::Window` if an overlay is already open in the process.
+   - A `WM_QUIT` that arrives while the overlay is open cancels it, and is re-posted for the caller's loop.
+   - The snapped window is shown undimmed, like a selection, with the 2 px accent outline and no tint. The UI engineer may want to confirm this in DESIGN.md.

@@ -2,8 +2,8 @@
 //!
 //! Per monitor: `BitBlt` (`SRCCOPY | CAPTUREBLT`) from the screen DC into a top-down
 //! 32-bpp DIB section, then one vectorized copy into `MonitorFrame::bgra` with alpha
-//! forced to 255. The screen DC uses virtual-desktop coordinates, so monitor rects
-//! (which can be negative) are used as blit sources directly.
+//! forced to 255 (no zero-fill first). The screen DC uses virtual-desktop coordinates,
+//! so monitor rects (which can be negative) are used as blit sources directly.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -118,8 +118,7 @@ fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<Mo
     // no padding). The memory is owned by `dib`, which outlives this borrow, and the
     // pointer was checked above to be non-null and u32-aligned.
     let src = unsafe { std::slice::from_raw_parts(bits.cast::<u32>(), n) };
-    let mut bgra = vec![0u8; n * 4];
-    pixels::copy_opaque(&mut bgra, src);
+    let bgra = pixels::to_opaque_bgra(src);
 
     Ok(MonitorFrame { rect: m.rect.to_phys(), work_area: m.work.to_phys(), scale: m.scale, bgra })
 }

@@ -318,7 +318,11 @@ impl App {
                 let r = self.interaction.right_down(p);
                 (handled, self.respond(r))
             }
-            WM_RBUTTONUP => (handled, Deferred::default()),
+            WM_RBUTTONUP => {
+                let p = point();
+                let r = self.interaction.right_up(p);
+                (handled, self.respond(r))
+            }
             WM_KEYDOWN | WM_SYSKEYDOWN => {
                 // SAFETY: reads this thread's keyboard state.
                 let ctrl = unsafe { GetKeyState(i32::from(VK_CONTROL.0)) } < 0;

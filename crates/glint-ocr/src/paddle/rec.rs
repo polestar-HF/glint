@@ -95,14 +95,17 @@ pub(crate) fn rec_width(w: u32, h: u32, max_w: usize) -> usize {
 
 /// Groups line indices into batches of similar width.
 ///
-/// Lines are sorted by width; a batch is closed when it has `max_batch` lines or when adding the
+/// Lines are sorted by width; a batch is closed when it has `max_batch` lines, when adding the
 /// next (wider) line would pad the narrowest member by more than `max_pad_ratio` (padded width
-/// is at least `min_width`). Returns each batch's line indices and its padded width.
+/// is at least `min_width`), or when `lines * padded width` would exceed `max_area` (the
+/// recognizer's output is `width / 8 * 18710` floats per line, so this bounds peak memory; a
+/// single line is always allowed). Returns each batch's line indices and its padded width.
 pub(crate) fn plan_batches(
     widths: &[usize],
     max_batch: usize,
     min_width: usize,
     max_pad_ratio: f32,
+    max_area: usize,
 ) -> Vec<(Vec<usize>, usize)> {
     let mut order: Vec<usize> = (0..widths.len()).collect();
     order.sort_by_key(|&i| widths[i]);
@@ -113,7 +116,10 @@ pub(crate) fn plan_batches(
         let w = widths[i].max(min_width);
         if let Some(&first) = cur.first() {
             let first_w = widths[first].max(min_width);
-            if cur.len() >= max_batch || w as f32 > first_w as f32 * max_pad_ratio {
+            if cur.len() >= max_batch
+                || w as f32 > first_w as f32 * max_pad_ratio
+                || (cur.len() + 1) * w > max_area
+            {
                 let width = cur.iter().map(|&j| widths[j]).max().unwrap_or(0).max(min_width);
                 out.push((std::mem::take(&mut cur), width));
             }
@@ -204,7 +210,7 @@ mod tests {
     #[test]
     fn batches_group_similar_widths() {
         let widths = [900, 100, 120, 950, 400, 130];
-        let b = plan_batches(&widths, 4, 320, 1.25);
+        let b = plan_batches(&widths, 4, 320, 1.25, usize::MAX);
         // 100, 120, 130 pad to 320 together; 400 alone (400 > 320 * 1.25); 900 and 950 together.
         let sets: Vec<Vec<usize>> = b.iter().map(|(v, _)| v.clone()).collect();
         assert_eq!(sets, vec![vec![1, 2, 5], vec![4], vec![0, 3]]);
@@ -216,10 +222,20 @@ mod tests {
     #[test]
     fn batch_size_cap_and_singletons() {
         let widths = [330, 330, 330, 330, 330];
-        let b = plan_batches(&widths, 2, 320, 1.25);
+        let b = plan_batches(&widths, 2, 320, 1.25, usize::MAX);
         assert_eq!(b.iter().map(|(v, _)| v.len()).collect::<Vec<_>>(), vec![2, 2, 1]);
-        let b = plan_batches(&widths, 1, 320, 1.25);
+        let b = plan_batches(&widths, 1, 320, 1.25, usize::MAX);
         assert_eq!(b.len(), 5);
-        assert!(plan_batches(&[], 4, 320, 1.25).is_empty());
+        assert!(plan_batches(&[], 4, 320, 1.25, usize::MAX).is_empty());
+    }
+
+    #[test]
+    fn batch_area_budget_bounds_memory() {
+        let widths = [1000, 1000, 1000, 1000];
+        let b = plan_batches(&widths, 8, 320, 1.25, 2000);
+        assert_eq!(b.iter().map(|(v, _)| v.len()).collect::<Vec<_>>(), vec![2, 2]);
+        // A single line over budget still runs.
+        let b = plan_batches(&[5000], 8, 320, 1.25, 2000);
+        assert_eq!(b, vec![(vec![0], 5000)]);
     }
 }

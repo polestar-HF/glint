@@ -101,11 +101,21 @@ pub enum OverlayError {
 pub type Result<T> = std::result::Result<T, OverlayError>;
 
 /// Capture every monitor as a frozen frame. Process must be per-monitor-v2 DPI aware.
+///
+/// On Windows the calling thread is switched to PMv2 for the duration of the call (and
+/// restored afterwards), so coordinates are physical even on a thread with another DPI
+/// context. Process awareness is never changed.
 pub fn capture_all() -> Result<Vec<MonitorFrame>> {
     imp::capture_all()
 }
 
 /// Show the selection overlay on all monitors and block until the user selects or cancels.
+///
+/// Creates its windows on the calling thread and pumps that thread's messages until
+/// done; every window, graphics and GDI resource is released before it returns. A
+/// `WM_QUIT` received meanwhile cancels the overlay and is re-posted for the caller.
+/// Only one overlay can be open per process; a concurrent call returns
+/// `OverlayError::Window`.
 pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result<Outcome> {
     imp::select_region(frames, opts)
 }

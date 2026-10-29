@@ -120,6 +120,7 @@
 
 <button
   class="select"
+  role="combobox"
   bind:this={btn}
   style:width="{width}px"
   aria-haspopup="listbox"

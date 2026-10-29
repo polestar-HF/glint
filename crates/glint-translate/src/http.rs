@@ -133,6 +133,18 @@ where
     }
 }
 
+/// Give `fut` an overall deadline. Per-request timeouts bound one attempt; this bounds the
+/// whole job, including the retry and any second request, so the documented totals (30 s for
+/// machine translation, 60 s for LLMs) hold exactly.
+pub(crate) async fn within<T>(
+    limit: Duration,
+    fut: impl Future<Output = Result<T, TranslateError>>,
+) -> Result<T, TranslateError> {
+    tokio::time::timeout(limit, fut)
+        .await
+        .unwrap_or_else(|_| Err(TranslateError::Network("The request timed out".into())))
+}
+
 /// Send a request and turn every non-2xx answer into a short, human-readable [`Failure`].
 pub(crate) async fn send(
     req: reqwest::RequestBuilder,
@@ -529,6 +541,39 @@ mod tests {
         .await;
         assert!(out.is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 1, "401 is never retried");
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn within_enforces_an_overall_deadline() {
+        let slow = within(Duration::from_secs(30), async {
+            tokio::time::sleep(Duration::from_secs(100)).await;
+            Ok(1)
+        });
+        assert!(
+            matches!(slow.await, Err(TranslateError::Network(m)) if m == "The request timed out")
+        );
+        let fast = within(Duration::from_secs(30), async {
+            tokio::time::sleep(Duration::from_secs(5)).await;
+            Ok(2)
+        });
+        assert_eq!(fast.await.ok(), Some(2));
+        // The retry counts against the same budget: two 20 s attempts do not fit in 30 s.
+        let calls = std::sync::atomic::AtomicU32::new(0);
+        let both = within(
+            Duration::from_secs(30),
+            retrying(|| {
+                calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                async {
+                    tokio::time::sleep(Duration::from_secs(20)).await;
+                    Err::<(), _>(Failure::from(TranslateError::Service {
+                        status: 503,
+                        message: "x".into(),
+                    }))
+                }
+            }),
+        );
+        assert!(matches!(both.await, Err(TranslateError::Network(_))));
+        assert_eq!(calls.load(std::sync::atomic::Ordering::SeqCst), 2);
     }
 
     #[test]

@@ -75,10 +75,10 @@ html.preview #app {
 .nav-item:active {
   background: var(--bg-subtle-pressed);
 }
-.nav-item[aria-selected='true'] {
+.nav-item[aria-current='page'] {
   background: var(--bg-subtle-hover);
 }
-.nav-item[aria-selected='true']::before {
+.nav-item[aria-current='page']::before {
   content: '';
   position: absolute;
   left: 0;

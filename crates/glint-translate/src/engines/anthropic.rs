@@ -20,7 +20,7 @@ use serde_json::{json, Value};
 
 use super::{non_empty, parse_err};
 use crate::http::{
-    is_event_stream, join_endpoint, retrying, send, stream_sse, Failure, Provider, Step,
+    is_event_stream, join_endpoint, retrying, send, stream_sse, within, Failure, Provider, Step,
     LLM_TIMEOUT,
 };
 use crate::prompt;
@@ -123,7 +123,7 @@ impl Translator for Anthropic {
         let system = prompt::system_prompt(req, self.extra_prompt.as_deref());
         let user = prompt::user_message(&req.text);
         let body = request_body(&self.model, &system, &user, &req.text);
-        retrying(|| self.attempt(&body, &deltas)).await
+        within(LLM_TIMEOUT, retrying(|| self.attempt(&body, &deltas))).await
     }
 }
 

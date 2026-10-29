@@ -144,11 +144,13 @@ pub struct Interaction {
     magnifier: bool,
     cursor: Option<Point>,
     press: Option<Press>,
+    /// A right-button down outside a drag; the matching up cancels.
+    cancel_armed: bool,
 }
 
 impl Interaction {
     pub fn new(monitors: Vec<Rect>, targets: Vec<Rect>, default_action: Action, magnifier: bool) -> Self {
-        Self { monitors, targets, default_action, magnifier, cursor: None, press: None }
+        Self { monitors, targets, default_action, magnifier, cursor: None, press: None, cancel_armed: false }
     }
 
     pub fn monitor_at(&self, p: Point) -> Option<usize> {
@@ -208,6 +210,8 @@ impl Interaction {
         let Some(monitor) = self.monitor_at(p) else {
             return Response::default();
         };
+        // Starting a drag disarms a pending right-click cancel.
+        self.cancel_armed = false;
         let snapped = self.snap_at(p).map(|(r, _)| r);
         self.press = Some(Press { start: p, monitor, snapped });
         Response { capture: Some(Capture::Set), ..Response::default() }
@@ -226,13 +230,28 @@ impl Interaction {
         Response { capture: Some(Capture::Release), move_cursor: None, finish }
     }
 
-    /// Right-click resets a drag in progress, and otherwise cancels the overlay.
+    /// Right button down: resets a drag in progress at once; otherwise arms a cancel
+    /// that fires on the matching button-up. Acting on the up means both halves of the
+    /// click land on the overlay, so the app underneath never sees a stray
+    /// `WM_RBUTTONUP` (which opens context menus in many apps).
     pub fn right_down(&mut self, p: Point) -> Response {
         self.cursor = Some(p);
         if self.press.take().is_some() {
+            self.cancel_armed = false;
             Response { capture: Some(Capture::Release), ..Response::default() }
         } else {
+            self.cancel_armed = true;
+            Response::default()
+        }
+    }
+
+    /// Right button up: cancels if the matching down armed it.
+    pub fn right_up(&mut self, p: Point) -> Response {
+        self.cursor = Some(p);
+        if std::mem::take(&mut self.cancel_armed) {
             Response::finish(Finish::Cancel)
+        } else {
+            Response::default()
         }
     }
 
@@ -397,9 +416,23 @@ mod tests {
         let r = ix.right_down(Point::new(300, 300));
         assert_eq!(r, Response { capture: Some(Capture::Release), ..Response::default() });
         assert!(matches!(ix.view(1).highlight, Highlight::Snap(_)), "back to hover");
-        // The left-up that follows must not select anything.
+        // Neither the matching right-up nor the later left-up does anything.
+        assert_eq!(ix.right_up(Point::new(300, 300)), Response::default());
         assert_eq!(ix.left_up(Point::new(300, 300)).finish, None);
-        assert_eq!(ix.right_down(Point::new(300, 300)).finish, Some(Finish::Cancel));
+        // A second right-click cancels, on button-up.
+        assert_eq!(ix.right_down(Point::new(300, 300)), Response::default());
+        assert_eq!(ix.right_up(Point::new(300, 300)).finish, Some(Finish::Cancel));
+    }
+
+    #[test]
+    fn right_up_without_down_is_ignored() {
+        // E.g. the button was already held when the overlay appeared.
+        let mut ix = setup();
+        assert_eq!(ix.right_up(Point::new(5, 5)), Response::default());
+        // A left drag started while the right button is down disarms the cancel.
+        ix.right_down(Point::new(5, 5));
+        ix.left_down(Point::new(5, 5));
+        assert_eq!(ix.right_up(Point::new(5, 5)).finish, None);
     }
 
     #[test]

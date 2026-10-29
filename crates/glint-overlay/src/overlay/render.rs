@@ -187,7 +187,11 @@ impl Device {
         Ok(Self { target, frozen, brush })
     }
 
-    /// Executes one primitive. Must be called between BeginDraw and EndDraw.
+    /// Executes one primitive.
+    ///
+    /// # Safety
+    /// Must be called between `BeginDraw` and `EndDraw` on `self.target`, and `format`
+    /// must be a live text format.
     unsafe fn execute(&self, prim: &Prim, format: &IDWriteTextFormat, full: &D2D_RECT_F) {
         let t = &self.target;
         // SAFETY: the caller is inside BeginDraw/EndDraw; all pointers are to locals that

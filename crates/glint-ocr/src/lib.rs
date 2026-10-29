@@ -1,11 +1,24 @@
 //! OCR engines and text post-processing.
 //!
 //! Contract: see `docs/ARCHITECTURE.md`.
+//!
+//! * [`PaddleOcr`]: PP-OCR (det + rec ONNX models) on ONNX Runtime, cross-platform.
+//! * `WindowsOcr` (Windows only): `Windows.Media.Ocr`.
+//! * [`postprocess`]: reading order, paragraph merging, normalization and language guess, shared
+//!   by both engines.
 
 use image::RgbaImage;
 use serde::Serialize;
 
+mod imgproc;
+mod paddle;
 pub mod postprocess;
+#[cfg(windows)]
+mod windows_ocr;
+
+pub use paddle::{PaddleOcr, PaddleOptions, Timings};
+#[cfg(windows)]
+pub use windows_ocr::WindowsOcr;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]

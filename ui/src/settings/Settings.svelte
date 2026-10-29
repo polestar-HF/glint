@@ -103,15 +103,10 @@
 
   <div class="settings">
     <nav class="nav" aria-label={t('settings.title')}>
-      <div class="nav-list" role="tablist" aria-orientation="vertical" tabindex="-1" onkeydown={navKey}>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div class="nav-list" onkeydown={navKey}>
         {#each sections as s (s.id)}
-          <button
-            class="nav-item"
-            role="tab"
-            aria-selected={current === s.id}
-            tabindex={current === s.id ? 0 : -1}
-            onclick={() => go(s.id)}
-          >
+          <button class="nav-item" aria-current={current === s.id ? 'page' : undefined} onclick={() => go(s.id)}>
             <Icon name={s.icon} />
             <span>{t(s.label)}</span>
           </button>
@@ -123,7 +118,7 @@
       </div>
     </nav>
 
-    <main class="page" bind:this={pageEl} role="tabpanel">
+    <main class="page" bind:this={pageEl}>
       <h1 class="page-title">{t(section.label)}</h1>
       {#if store.config}
         <Current />

@@ -1,31 +1,47 @@
 //! Pixel-format helpers shared by capture, rendering and the final crop.
 
+use std::mem::MaybeUninit;
+
 use crate::geom::{Point, Rect};
 
 /// Bit mask that sets the alpha byte (the 4th byte in memory) of a BGRA pixel read as a
 /// native-endian `u32`.
 const ALPHA_MASK: u32 = u32::from_ne_bytes([0, 0, 0, 0xFF]);
 
-/// Copies BGRX pixels into a BGRA byte buffer, forcing alpha to 255.
-///
-/// `dst.len()` must be `src.len() * 4`; extra bytes on either side are left untouched.
-/// When `dst` is 4-byte aligned (always the case for a fresh `Vec<u8>` of this size in
-/// practice) this compiles to a single vectorized OR-and-store pass.
-pub fn copy_opaque(dst: &mut [u8], src: &[u32]) {
+/// Converts BGRX pixels (as captured by GDI, alpha undefined) to a BGRA byte vector
+/// with alpha 255, in one pass and without zero-filling the destination first.
+pub fn to_opaque_bgra(src: &[u32]) -> Vec<u8> {
+    let len = src.len() * 4;
+    let mut out = Vec::with_capacity(len);
+    let written = write_opaque(&mut out.spare_capacity_mut()[..len], src);
+    // SAFETY: `write_opaque` initialized the first `written` bytes (= len) of the
+    // spare capacity, which is within the allocation.
+    unsafe { out.set_len(written) };
+    out
+}
+
+/// Writes `src` as BGRA with alpha 255 into `dst` and returns how many leading bytes of
+/// `dst` it initialized (`min(dst.len() / 4, src.len()) * 4`). When `dst` is 4-byte
+/// aligned (always, for a fresh large `Vec`) this is a single vectorizable OR-and-store
+/// loop, i.e. memcpy speed in optimized builds.
+fn write_opaque(dst: &mut [MaybeUninit<u8>], src: &[u32]) -> usize {
     let n = src.len().min(dst.len() / 4);
     let (dst, src) = (&mut dst[..n * 4], &src[..n]);
-    // SAFETY: reinterpreting initialized bytes as u32 is always valid; `align_to_mut`
-    // only yields the correctly aligned middle part.
-    let (prefix, words, _) = unsafe { dst.align_to_mut::<u32>() };
+    // SAFETY: MaybeUninit<u32> has no validity requirements, so viewing the aligned
+    // middle of the byte buffer as words is sound.
+    let (prefix, words, _) = unsafe { dst.align_to_mut::<MaybeUninit<u32>>() };
     if prefix.is_empty() && words.len() == n {
         for (d, s) in words.iter_mut().zip(src) {
-            *d = *s | ALPHA_MASK;
+            d.write(*s | ALPHA_MASK);
         }
     } else {
         for (d, s) in dst.chunks_exact_mut(4).zip(src) {
-            d.copy_from_slice(&(*s | ALPHA_MASK).to_ne_bytes());
+            for (b, v) in d.iter_mut().zip((*s | ALPHA_MASK).to_ne_bytes()) {
+                b.write(v);
+            }
         }
     }
+    n * 4
 }
 
 /// Crops `rect` (in frame-local pixels, clipped to the frame) out of a top-down BGRA
@@ -79,25 +95,37 @@ mod tests {
         u32::from_ne_bytes([b, g, r, a])
     }
 
-    #[test]
-    fn copy_opaque_forces_alpha_aligned_and_unaligned() {
-        let src: Vec<u32> = (0..37u8).map(|i| bgra_pixel(i, i.wrapping_mul(3), 255 - i, i)).collect();
-        for shift in 0..4 {
-            let mut buf = vec![0u8; src.len() * 4 + shift];
-            copy_opaque(&mut buf[shift..], &src);
-            for (i, px) in buf[shift..].chunks_exact(4).enumerate() {
-                let i = i as u8;
-                assert_eq!(px, &[i, i.wrapping_mul(3), 255 - i, 255], "shift {shift}");
-            }
+    fn sample_src() -> Vec<u32> {
+        (0..37u8).map(|i| bgra_pixel(i, i.wrapping_mul(3), 255 - i, i)).collect()
+    }
+
+    fn assert_opaque_copy(bytes: &[u8]) {
+        assert_eq!(bytes.len(), 37 * 4);
+        for (i, px) in bytes.chunks_exact(4).enumerate() {
+            let i = i as u8;
+            assert_eq!(px, &[i, i.wrapping_mul(3), 255 - i, 255]);
         }
     }
 
     #[test]
-    fn copy_opaque_tolerates_short_buffers() {
-        let src = vec![bgra_pixel(1, 2, 3, 0); 4];
-        let mut dst = vec![9u8; 10];
-        copy_opaque(&mut dst, &src);
-        assert_eq!(dst, [1, 2, 3, 255, 1, 2, 3, 255, 9, 9]);
+    fn to_opaque_bgra_forces_alpha() {
+        assert_opaque_copy(&to_opaque_bgra(&sample_src()));
+        assert!(to_opaque_bgra(&[]).is_empty());
+    }
+
+    #[test]
+    fn write_opaque_handles_unaligned_and_short_buffers() {
+        let src = sample_src();
+        for shift in 0..4 {
+            let mut buf = vec![MaybeUninit::new(0u8); src.len() * 4 + shift];
+            let written = write_opaque(&mut buf[shift..], &src);
+            assert_eq!(written, src.len() * 4);
+            // SAFETY: every byte was initialized by `vec![MaybeUninit::new(0)]`.
+            let bytes: Vec<u8> = buf[shift..].iter().map(|b| unsafe { b.assume_init() }).collect();
+            assert_opaque_copy(&bytes);
+        }
+        let mut short = vec![MaybeUninit::new(9u8); 10];
+        assert_eq!(write_opaque(&mut short, &src), 8, "only whole pixels that fit");
     }
 
     fn test_frame(w: u32, h: u32) -> Vec<u8> {

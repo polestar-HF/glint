@@ -11,7 +11,7 @@ pub(crate) mod youdao;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use crate::http::{retrying, Failure};
+use crate::http::{retrying, within, Failure, MT_TIMEOUT};
 use crate::langs::{self, Role};
 use crate::{DeltaSink, EngineConfig, Result, TranslateError, TranslateRequest, Translator};
 
@@ -133,21 +133,26 @@ impl<B: Backend> Translator for MtEngine<B> {
         let from = self.backend.lang(&req.source_lang, Role::Source)?;
         let to = self.backend.lang(&target, Role::Target)?;
 
-        let mut out = retrying(|| self.backend.call(text, from, to)).await?;
+        let out = within(MT_TIMEOUT, async {
+            let mut out = retrying(|| self.backend.call(text, from, to)).await?;
 
-        // Source "auto" and the text turned out to be in the target language already: translate
-        // it into the secondary language instead (one more request, only in this case).
-        if langs::is_auto(&req.source_lang) {
-            if let (Some(detected), Some(sec)) = (
-                out.detected.as_deref(),
-                langs::usable_secondary(&target, secondary),
-            ) {
-                if langs::same_engine_lang(detected, to) {
-                    let to2 = self.backend.lang(sec, Role::Target)?;
-                    out = retrying(|| self.backend.call(text, from, to2)).await?;
+            // Source "auto" and the text turned out to be in the target language already:
+            // translate it into the secondary language instead (one more request, only in
+            // this case).
+            if langs::is_auto(&req.source_lang) {
+                if let (Some(detected), Some(sec)) = (
+                    out.detected.as_deref(),
+                    langs::usable_secondary(&target, secondary),
+                ) {
+                    if langs::same_engine_lang(detected, to) {
+                        let to2 = self.backend.lang(sec, Role::Target)?;
+                        out = retrying(|| self.backend.call(text, from, to2)).await?;
+                    }
                 }
             }
-        }
+            Ok(out)
+        })
+        .await?;
 
         let _ = deltas.send(out.text.clone());
         Ok(out.text)

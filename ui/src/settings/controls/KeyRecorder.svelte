@@ -17,7 +17,6 @@
 
   let recording = $state(false);
   let held = $state<Chord | null>(null);
-  let el = $state<HTMLButtonElement>();
 
   const parts = $derived(chordParts(value));
   const heldParts = $derived(held ? chordParts(formatChord({ ...held, key: null })) : []);
@@ -113,7 +112,6 @@
     </button>
   {/if}
   <button
-    bind:this={el}
     class="recorder"
     class:recording
     title={t('recorder.edit')}
