@@ -20,7 +20,8 @@ use serde_json::{json, Value};
 
 use super::{non_empty, parse_err};
 use crate::http::{
-    is_event_stream, join_endpoint, retrying, send, stream_sse, Failure, Provider, Step, LLM_TIMEOUT,
+    is_event_stream, join_endpoint, retrying, send, stream_sse, Failure, Provider, Step,
+    LLM_TIMEOUT,
 };
 use crate::prompt;
 use crate::sse::SseEvent;
@@ -40,13 +41,20 @@ pub(crate) struct Anthropic {
 }
 
 impl Anthropic {
-    pub fn new(id: String, name: String, cfg: &EngineConfig, http: reqwest::Client) -> Result<Self> {
+    pub fn new(
+        id: String,
+        name: String,
+        cfg: &EngineConfig,
+        http: reqwest::Client,
+    ) -> Result<Self> {
         let api_key = non_empty(cfg.api_key.as_deref()).map(str::to_owned);
         let base = non_empty(cfg.base_url.as_deref());
         // A custom base URL may be a gateway that adds the key itself, so only the official
         // endpoint insists on one.
         if api_key.is_none() && base.is_none() {
-            return Err(TranslateError::Config("The Claude API key is not set".into()));
+            return Err(TranslateError::Config(
+                "The Claude API key is not set".into(),
+            ));
         }
         Ok(Self {
             id,
@@ -59,7 +67,11 @@ impl Anthropic {
         })
     }
 
-    async fn attempt(&self, body: &Value, deltas: &DeltaSink) -> std::result::Result<String, Failure> {
+    async fn attempt(
+        &self,
+        body: &Value,
+        deltas: &DeltaSink,
+    ) -> std::result::Result<String, Failure> {
         let mut rb = self
             .http
             .post(&self.url)
@@ -84,7 +96,11 @@ impl Anthropic {
         let streamed = stream_sse(resp, deltas, |ev| state.on_event(ev)).await?;
         state.finish().map_err(|e| {
             // A stream that died early is worth one more try if nothing was shown yet.
-            let f = if matches!(e, TranslateError::Network(_)) { Failure::retry(e) } else { Failure::fatal(e) };
+            let f = if matches!(e, TranslateError::Network(_)) {
+                Failure::retry(e)
+            } else {
+                Failure::fatal(e)
+            };
             f.no_retry_if(streamed)
         })
     }
@@ -143,21 +159,31 @@ pub(crate) fn thinking_policy(model: &str) -> ThinkingPolicy {
         (off(), low, 0)
     } else if m.starts_with("claude-sonnet-5-5") {
         (Some(json!({"type": "between_tools"})), low, 0)
-    } else if m.starts_with("claude-opus-5-5") {
-        (None, low, 4096)
-    } else if m.starts_with("claude-fable-") || m.starts_with("claude-mythos-") {
+    } else if m.starts_with("claude-opus-5-5")
+        || m.starts_with("claude-fable-")
+        || m.starts_with("claude-mythos-")
+    {
         (None, low, 4096)
     } else if m.starts_with("claude-opus-5") || m.starts_with("claude-sonnet-5") {
         (off(), low, 0)
-    } else if ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"]
-        .iter()
-        .any(|p| m.starts_with(p))
+    } else if [
+        "claude-opus-4-8",
+        "claude-opus-4-7",
+        "claude-opus-4-6",
+        "claude-sonnet-4-6",
+    ]
+    .iter()
+    .any(|p| m.starts_with(p))
     {
         (None, low, 0)
     } else {
         (None, None, 0)
     };
-    ThinkingPolicy { thinking, effort, headroom }
+    ThinkingPolicy {
+        thinking,
+        effort,
+        headroom,
+    }
 }
 
 /// The JSON body of the request.
@@ -193,7 +219,10 @@ impl StreamState {
         let Ok(v) = serde_json::from_str::<Value>(&ev.data) else {
             return Ok(Step::Continue);
         };
-        let kind = v.get("type").and_then(Value::as_str).or(ev.event.as_deref());
+        let kind = v
+            .get("type")
+            .and_then(Value::as_str)
+            .or(ev.event.as_deref());
         match kind {
             Some("content_block_delta") => {
                 // `thinking_delta` and `signature_delta` are not part of the translation.
@@ -252,7 +281,11 @@ fn check_stop_reason(reason: Option<&str>) -> std::result::Result<(), TranslateE
 /// Map an API error object (`{"type":"error","error":{"type":...,"message":...}}`) to a
 /// short error. The same shape appears as an HTTP error body and as a mid-stream event.
 fn api_error(v: &Value) -> TranslateError {
-    let status = match v.pointer("/error/type").and_then(Value::as_str).unwrap_or("") {
+    let status = match v
+        .pointer("/error/type")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+    {
         "overloaded_error" => 529,
         "rate_limit_error" => 429,
         "authentication_error" => 401,
@@ -293,7 +326,10 @@ mod tests {
     use super::*;
 
     fn ev(data: &str) -> SseEvent {
-        SseEvent { event: None, data: data.to_string() }
+        SseEvent {
+            event: None,
+            data: data.to_string(),
+        }
     }
 
     /// Feed raw SSE text through the real parser and state machine.
@@ -394,19 +430,33 @@ data: {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\
         let (res, deltas) = run_stream(raw);
         assert_eq!(deltas, vec!["Hel"]);
         match res {
-            Err(TranslateError::Service { status: 529, message }) => assert_eq!(message, "The service is overloaded"),
+            Err(TranslateError::Service {
+                status: 529,
+                message,
+            }) => assert_eq!(message, "The service is overloaded"),
             other => panic!("unexpected {other:?}"),
         }
     }
 
     #[test]
     fn error_types_map_to_statuses() {
-        let e = |t: &str, m: &str| api_error(&json!({"type":"error","error":{"type":t,"message":m}}));
-        assert!(matches!(e("rate_limit_error", "x"), TranslateError::Service { status: 429, ref message } if message == "Rate limited"));
-        assert!(matches!(e("authentication_error", "x"), TranslateError::Service { status: 401, ref message } if message == "Invalid API key"));
-        assert!(matches!(e("api_error", "x"), TranslateError::Service { status: 500, .. }));
+        let e =
+            |t: &str, m: &str| api_error(&json!({"type":"error","error":{"type":t,"message":m}}));
+        assert!(
+            matches!(e("rate_limit_error", "x"), TranslateError::Service { status: 429, ref message } if message == "Rate limited")
+        );
+        assert!(
+            matches!(e("authentication_error", "x"), TranslateError::Service { status: 401, ref message } if message == "Invalid API key")
+        );
+        assert!(matches!(
+            e("api_error", "x"),
+            TranslateError::Service { status: 500, .. }
+        ));
         match e("invalid_request_error", "max_tokens: too large") {
-            TranslateError::Service { status: 400, message } => assert_eq!(message, "Bad request: max_tokens: too large"),
+            TranslateError::Service {
+                status: 400,
+                message,
+            } => assert_eq!(message, "Bad request: max_tokens: too large"),
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -423,7 +473,10 @@ data: {\"type\":\"message_stop\"}
 ";
         let (res, _) = run_stream(raw);
         match res {
-            Err(TranslateError::Service { status: 200, message }) => assert!(message.contains("declined")),
+            Err(TranslateError::Service {
+                status: 200,
+                message,
+            }) => assert!(message.contains("declined")),
             other => panic!("unexpected {other:?}"),
         }
     }
@@ -451,7 +504,10 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
     fn garbage_event_data_is_skipped() {
         let mut s = StreamState::default();
         assert!(matches!(s.on_event(&ev("not json")), Ok(Step::Continue)));
-        assert!(matches!(s.on_event(&ev("{\"type\":\"something_new\"}")), Ok(Step::Continue)));
+        assert!(matches!(
+            s.on_event(&ev("{\"type\":\"something_new\"}")),
+            Ok(Step::Continue)
+        ));
     }
 
     #[test]
@@ -459,13 +515,27 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
         let body = r#"{"id":"msg_1","type":"message","role":"assistant","model":"claude-haiku-5-5",
             "content":[{"type":"text","text":"Hello "},{"type":"text","text":"there"}],
             "stop_reason":"end_turn","usage":{"input_tokens":5,"output_tokens":3}}"#;
-        assert_eq!(parse_message_json(body).ok().as_deref(), Some("Hello there"));
+        assert_eq!(
+            parse_message_json(body).ok().as_deref(),
+            Some("Hello there")
+        );
         let with_thinking = r#"{"type":"message","content":[{"type":"thinking","thinking":"","signature":"x"},{"type":"text","text":"Hi"}],"stop_reason":"end_turn"}"#;
-        assert_eq!(parse_message_json(with_thinking).ok().as_deref(), Some("Hi"));
-        assert!(matches!(parse_message_json("<html>"), Err(TranslateError::Parse(_))));
-        assert!(matches!(parse_message_json(r#"{"type":"message","content":[]}"#), Err(TranslateError::Parse(_))));
+        assert_eq!(
+            parse_message_json(with_thinking).ok().as_deref(),
+            Some("Hi")
+        );
         assert!(matches!(
-            parse_message_json(r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#),
+            parse_message_json("<html>"),
+            Err(TranslateError::Parse(_))
+        ));
+        assert!(matches!(
+            parse_message_json(r#"{"type":"message","content":[]}"#),
+            Err(TranslateError::Parse(_))
+        ));
+        assert!(matches!(
+            parse_message_json(
+                r#"{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}"#
+            ),
             Err(TranslateError::Service { status: 401, .. })
         ));
         assert!(matches!(
@@ -478,19 +548,34 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
 
     #[test]
     fn haiku_request_is_streaming_with_thinking_off_and_no_sampling_params() {
-        let body = request_body("claude-haiku-5-5", "SYS", "<source_text>\nhi\n</source_text>", "hi");
+        let body = request_body(
+            "claude-haiku-5-5",
+            "SYS",
+            "<source_text>\nhi\n</source_text>",
+            "hi",
+        );
         assert_eq!(body["model"], "claude-haiku-5-5");
         assert_eq!(body["stream"], true);
         assert_eq!(body["system"], "SYS");
         assert_eq!(body["messages"][0]["role"], "user");
-        assert_eq!(body["messages"][0]["content"], "<source_text>\nhi\n</source_text>");
+        assert_eq!(
+            body["messages"][0]["content"],
+            "<source_text>\nhi\n</source_text>"
+        );
         assert_eq!(body["thinking"], json!({"type": "disabled"}));
         assert_eq!(body["output_config"], json!({"effort": "low"}));
         assert_eq!(body["max_tokens"], 256 + 2);
         for banned in ["temperature", "top_p", "top_k"] {
-            assert!(body.get(banned).is_none(), "{banned} is a 400 on API version 2026-10-21");
+            assert!(
+                body.get(banned).is_none(),
+                "{banned} is a 400 on API version 2026-10-21"
+            );
         }
-        assert_eq!(body["messages"].as_array().map(Vec::len), Some(1), "no assistant prefill");
+        assert_eq!(
+            body["messages"].as_array().map(Vec::len),
+            Some(1),
+            "no assistant prefill"
+        );
     }
 
     #[test]
@@ -498,12 +583,27 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
         let p = |m: &str| thinking_policy(m);
         let off = Some(json!({"type": "disabled"}));
 
-        assert_eq!(p("claude-haiku-5-5"), ThinkingPolicy { thinking: off.clone(), effort: Some("low"), headroom: 0 });
+        assert_eq!(
+            p("claude-haiku-5-5"),
+            ThinkingPolicy {
+                thinking: off.clone(),
+                effort: Some("low"),
+                headroom: 0
+            }
+        );
         assert_eq!(p("anthropic.claude-haiku-5-5").thinking, off);
-        assert_eq!(p("claude-sonnet-5-5").thinking, Some(json!({"type": "between_tools"})));
+        assert_eq!(
+            p("claude-sonnet-5-5").thinking,
+            Some(json!({"type": "between_tools"}))
+        );
         assert_eq!(p("claude-sonnet-5-5").effort, Some("low"));
         // Opus 5.5 and Fable cannot turn thinking off: omit it, lowest effort, leave room.
-        for m in ["claude-opus-5-5", "claude-fable-5-1", "claude-fable-5", "claude-mythos-5-1"] {
+        for m in [
+            "claude-opus-5-5",
+            "claude-fable-5-1",
+            "claude-fable-5",
+            "claude-mythos-5-1",
+        ] {
             let pol = p(m);
             assert_eq!(pol.thinking, None, "{m}");
             assert_eq!(pol.effort, Some("low"), "{m}");
@@ -513,12 +613,39 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
         assert_eq!(p("claude-opus-5").thinking, off);
         assert_eq!(p("claude-sonnet-5").thinking, off);
         // 4.6 to 4.8 do not think unless asked.
-        for m in ["claude-opus-4-8", "claude-opus-4-7", "claude-opus-4-6", "claude-sonnet-4-6"] {
-            assert_eq!(p(m), ThinkingPolicy { thinking: None, effort: Some("low"), headroom: 0 }, "{m}");
+        for m in [
+            "claude-opus-4-8",
+            "claude-opus-4-7",
+            "claude-opus-4-6",
+            "claude-sonnet-4-6",
+        ] {
+            assert_eq!(
+                p(m),
+                ThinkingPolicy {
+                    thinking: None,
+                    effort: Some("low"),
+                    headroom: 0
+                },
+                "{m}"
+            );
         }
         // Older models and unknown names get neither field (effort is an error on Haiku 4.5).
-        for m in ["claude-haiku-4-5", "claude-sonnet-4-5", "claude-3-5-haiku-latest", "my-proxy-model", ""] {
-            assert_eq!(p(m), ThinkingPolicy { thinking: None, effort: None, headroom: 0 }, "{m}");
+        for m in [
+            "claude-haiku-4-5",
+            "claude-sonnet-4-5",
+            "claude-3-5-haiku-latest",
+            "my-proxy-model",
+            "",
+        ] {
+            assert_eq!(
+                p(m),
+                ThinkingPolicy {
+                    thinking: None,
+                    effort: None,
+                    headroom: 0
+                },
+                "{m}"
+            );
         }
     }
 
@@ -545,14 +672,16 @@ data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_d
         cfg.api_key = Some("   ".into());
         assert!(Anthropic::new("c".into(), "C".into(), &cfg, http.clone()).is_err());
         cfg.api_key = Some(" sk-ant-x \n".into());
-        let a = Anthropic::new("c".into(), "C".into(), &cfg, http.clone()).ok().expect("builds");
+        let a = Anthropic::new("c".into(), "C".into(), &cfg, http.clone())
+            .unwrap_or_else(|e| panic!("builds: {e}"));
         assert_eq!(a.url, "https://api.anthropic.com/v1/messages");
         assert_eq!(a.api_key.as_deref(), Some("sk-ant-x"));
         assert_eq!(a.model, "claude-haiku-5-5");
 
         cfg.api_key = None;
         cfg.base_url = Some("http://localhost:4000/v1/".into());
-        let a = Anthropic::new("c".into(), "C".into(), &cfg, http).ok().expect("gateway needs no key");
+        let a = Anthropic::new("c".into(), "C".into(), &cfg, http)
+            .unwrap_or_else(|e| panic!("gateway needs no key: {e}"));
         assert_eq!(a.url, "http://localhost:4000/v1/messages");
     }
 }

@@ -57,7 +57,10 @@ impl Backend for DeepL {
             .http
             .post(format!("{}/v2/translate", self.host))
             .timeout(MT_TIMEOUT)
-            .header(reqwest::header::AUTHORIZATION, format!("DeepL-Auth-Key {}", self.key))
+            .header(
+                reqwest::header::AUTHORIZATION,
+                format!("DeepL-Auth-Key {}", self.key),
+            )
             .json(&body);
         let resp = send(rb, Provider::DeepL).await?;
         Ok(parse_response(&resp.text().await?)?)
@@ -76,7 +79,10 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
         .ok_or_else(|| parse_err("the response has no translated text"))?;
     Ok(MtOut {
         text: text.to_string(),
-        detected: first.get("detected_source_language").and_then(Value::as_str).map(str::to_owned),
+        detected: first
+            .get("detected_source_language")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -86,9 +92,15 @@ mod tests {
 
     #[test]
     fn host_is_chosen_from_the_key_suffix() {
-        assert_eq!(host_for_key("279a2e9d-83b3-c416-7e2d-f721593e42a0:fx"), "https://api-free.deepl.com");
+        assert_eq!(
+            host_for_key("279a2e9d-83b3-c416-7e2d-f721593e42a0:fx"),
+            "https://api-free.deepl.com"
+        );
         assert_eq!(host_for_key("  abc:fx \n"), "https://api-free.deepl.com");
-        assert_eq!(host_for_key("279a2e9d-83b3-c416-7e2d-f721593e42a0"), "https://api.deepl.com");
+        assert_eq!(
+            host_for_key("279a2e9d-83b3-c416-7e2d-f721593e42a0"),
+            "https://api.deepl.com"
+        );
         assert_eq!(host_for_key("abc:fx:pro"), "https://api.deepl.com");
     }
 
@@ -96,12 +108,23 @@ mod tests {
     fn construction_needs_a_key_and_honours_base_url() {
         let http = reqwest::Client::new();
         let mut cfg = crate::default_engines().remove(4);
-        assert!(matches!(DeepL::new(&cfg, http.clone()), Err(TranslateError::Config(_))));
+        assert!(matches!(
+            DeepL::new(&cfg, http.clone()),
+            Err(TranslateError::Config(_))
+        ));
         cfg.api_key = Some(" k:fx ".into());
-        let d = DeepL::new(&cfg, http.clone()).ok().expect("builds");
-        assert_eq!((d.key.as_str(), d.host.as_str()), ("k:fx", "https://api-free.deepl.com"));
+        let d = DeepL::new(&cfg, http.clone()).unwrap_or_else(|e| panic!("builds: {e}"));
+        assert_eq!(
+            (d.key.as_str(), d.host.as_str()),
+            ("k:fx", "https://api-free.deepl.com")
+        );
         cfg.base_url = Some("http://127.0.0.1:1/".into());
-        assert_eq!(DeepL::new(&cfg, http).ok().expect("builds").host, "http://127.0.0.1:1");
+        assert_eq!(
+            DeepL::new(&cfg, http)
+                .unwrap_or_else(|e| panic!("builds: {e}"))
+                .host,
+            "http://127.0.0.1:1"
+        );
     }
 
     #[test]
@@ -116,8 +139,17 @@ mod tests {
 
     #[test]
     fn unexpected_bodies_are_parse_errors() {
-        for body in ["", "{}", r#"{"translations":[]}"#, r#"{"translations":[{}]}"#, "<html>"] {
-            assert!(matches!(parse_response(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "{}",
+            r#"{"translations":[]}"#,
+            r#"{"translations":[{}]}"#,
+            "<html>",
+        ] {
+            assert!(
+                matches!(parse_response(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 }

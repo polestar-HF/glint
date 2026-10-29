@@ -13,11 +13,24 @@ use crate::{TranslateRequest, Translator};
 /// `tr:delta`, `tr:done` and `tr:error` events.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum EngineEvent {
-    Start { engine_id: String, engine_name: String },
-    Delta { engine_id: String, delta: String },
-    Done { engine_id: String, text: String, elapsed_ms: u64 },
+    Start {
+        engine_id: String,
+        engine_name: String,
+    },
+    Delta {
+        engine_id: String,
+        delta: String,
+    },
+    Done {
+        engine_id: String,
+        text: String,
+        elapsed_ms: u64,
+    },
     /// `message` is short and fit to show to the user.
-    Error { engine_id: String, message: String },
+    Error {
+        engine_id: String,
+        message: String,
+    },
 }
 
 impl EngineEvent {
@@ -85,7 +98,10 @@ where
     F: Fn(EngineEvent) + Send + Sync,
 {
     let id = engine.id().to_string();
-    on_event(EngineEvent::Start { engine_id: id.clone(), engine_name: engine.name().to_string() });
+    on_event(EngineEvent::Start {
+        engine_id: id.clone(),
+        engine_name: engine.name().to_string(),
+    });
     let started = Instant::now();
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<String>();
@@ -104,7 +120,10 @@ where
     };
     // The engine may have queued a last delta right before returning.
     while let Ok(delta) = rx.try_recv() {
-        on_event(EngineEvent::Delta { engine_id: id.clone(), delta });
+        on_event(EngineEvent::Delta {
+            engine_id: id.clone(),
+            delta,
+        });
     }
 
     match result {
@@ -115,7 +134,10 @@ where
         }),
         Err(e) => {
             log::warn!("engine {id} failed: {e}");
-            on_event(EngineEvent::Error { engine_id: id, message: e.user_message() })
+            on_event(EngineEvent::Error {
+                engine_id: id,
+                message: e.user_message(),
+            })
         }
     }
 }
@@ -151,39 +173,87 @@ mod tests {
                 all.push_str(d);
             }
             match self.fail {
-                Some(m) => Err(TranslateError::Service { status: 401, message: m.into() }),
+                Some(m) => Err(TranslateError::Service {
+                    status: 401,
+                    message: m.into(),
+                }),
                 None => Ok(all),
             }
         }
     }
 
-    fn collect() -> (Arc<Mutex<Vec<EngineEvent>>>, impl Fn(EngineEvent) + Send + Sync) {
+    fn collect() -> (
+        Arc<Mutex<Vec<EngineEvent>>>,
+        impl Fn(EngineEvent) + Send + Sync,
+    ) {
         let log = Arc::new(Mutex::new(Vec::new()));
         let sink = log.clone();
-        (log, move |e| sink.lock().unwrap_or_else(|p| p.into_inner()).push(e))
+        (log, move |e| {
+            sink.lock().unwrap_or_else(|p| p.into_inner()).push(e)
+        })
     }
 
     fn events_of(log: &Mutex<Vec<EngineEvent>>, id: &str) -> Vec<EngineEvent> {
-        log.lock().unwrap_or_else(|p| p.into_inner()).iter().filter(|e| e.engine_id() == id).cloned().collect()
+        log.lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .iter()
+            .filter(|e| e.engine_id() == id)
+            .cloned()
+            .collect()
     }
 
     #[tokio::test(start_paused = true)]
     async fn emits_start_deltas_and_done_per_engine_in_order() {
         let engines: Vec<Box<dyn Translator>> = vec![
-            Box::new(Fake { id: "a", deltas: vec!["he", "llo"], pause_ms: 10, fail: None }),
-            Box::new(Fake { id: "b", deltas: vec!["x"], pause_ms: 5, fail: Some("Invalid API key") }),
-            Box::new(Fake { id: "c", deltas: vec![], pause_ms: 0, fail: None }),
+            Box::new(Fake {
+                id: "a",
+                deltas: vec!["he", "llo"],
+                pause_ms: 10,
+                fail: None,
+            }),
+            Box::new(Fake {
+                id: "b",
+                deltas: vec!["x"],
+                pause_ms: 5,
+                fail: Some("Invalid API key"),
+            }),
+            Box::new(Fake {
+                id: "c",
+                deltas: vec![],
+                pause_ms: 0,
+                fail: None,
+            }),
         ];
         let (log, on_event) = collect();
         translate_all(&engines, &TranslateRequest::default(), on_event).await;
 
         let a = events_of(&log, "a");
         assert_eq!(a.len(), 4, "{a:?}");
-        assert_eq!(a[0], EngineEvent::Start { engine_id: "a".into(), engine_name: "Fake".into() });
-        assert_eq!(a[1], EngineEvent::Delta { engine_id: "a".into(), delta: "he".into() });
-        assert_eq!(a[2], EngineEvent::Delta { engine_id: "a".into(), delta: "llo".into() });
+        assert_eq!(
+            a[0],
+            EngineEvent::Start {
+                engine_id: "a".into(),
+                engine_name: "Fake".into()
+            }
+        );
+        assert_eq!(
+            a[1],
+            EngineEvent::Delta {
+                engine_id: "a".into(),
+                delta: "he".into()
+            }
+        );
+        assert_eq!(
+            a[2],
+            EngineEvent::Delta {
+                engine_id: "a".into(),
+                delta: "llo".into()
+            }
+        );
         match &a[3] {
-            EngineEvent::Done { text, elapsed_ms, .. } => {
+            EngineEvent::Done {
+                text, elapsed_ms, ..
+            } => {
                 assert_eq!(text, "hello");
                 assert_eq!(*elapsed_ms, 20);
             }
@@ -194,7 +264,10 @@ mod tests {
         assert_eq!(b.len(), 3, "{b:?}");
         assert_eq!(
             b[2],
-            EngineEvent::Error { engine_id: "b".into(), message: "Invalid API key".into() }
+            EngineEvent::Error {
+                engine_id: "b".into(),
+                message: "Invalid API key".into()
+            }
         );
 
         let c = events_of(&log, "c");
@@ -205,8 +278,12 @@ mod tests {
     async fn engines_run_concurrently() {
         let engines: Vec<Box<dyn Translator>> = (0..5)
             .map(|i| {
-                Box::new(Fake { id: ["e0", "e1", "e2", "e3", "e4"][i], deltas: vec!["a", "b"], pause_ms: 100, fail: None })
-                    as Box<dyn Translator>
+                Box::new(Fake {
+                    id: ["e0", "e1", "e2", "e3", "e4"][i],
+                    deltas: vec!["a", "b"],
+                    pause_ms: 100,
+                    fail: None,
+                }) as Box<dyn Translator>
             })
             .collect();
         let (_log, on_event) = collect();
@@ -218,8 +295,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn accepts_arc_engines_and_an_empty_list() {
-        let engines: Vec<Arc<dyn Translator>> =
-            vec![Arc::new(Fake { id: "a", deltas: vec!["x"], pause_ms: 1, fail: None })];
+        let engines: Vec<Arc<dyn Translator>> = vec![Arc::new(Fake {
+            id: "a",
+            deltas: vec!["x"],
+            pause_ms: 1,
+            fail: None,
+        })];
         let (log, on_event) = collect();
         translate_all(&engines, &TranslateRequest::default(), on_event).await;
         assert_eq!(events_of(&log, "a").len(), 3);
@@ -233,17 +314,34 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn dropping_the_future_cancels_every_engine() {
         let engines: Vec<Box<dyn Translator>> = vec![
-            Box::new(Fake { id: "slow", deltas: vec!["a", "b", "c"], pause_ms: 1000, fail: None }),
-            Box::new(Fake { id: "fast", deltas: vec!["a"], pause_ms: 10, fail: None }),
+            Box::new(Fake {
+                id: "slow",
+                deltas: vec!["a", "b", "c"],
+                pause_ms: 1000,
+                fail: None,
+            }),
+            Box::new(Fake {
+                id: "fast",
+                deltas: vec!["a"],
+                pause_ms: 10,
+                fail: None,
+            }),
         ];
         let (log, on_event) = collect();
         let req = TranslateRequest::default();
-        let res = tokio::time::timeout(Duration::from_millis(1500), translate_all(&engines, &req, on_event)).await;
+        let res = tokio::time::timeout(
+            Duration::from_millis(1500),
+            translate_all(&engines, &req, on_event),
+        )
+        .await;
         assert!(res.is_err(), "the timeout must fire first");
         let slow = events_of(&log, "slow");
         // Started, got the first delta at 1000 ms, then was cancelled at 1500 ms.
         assert_eq!(slow.len(), 2, "{slow:?}");
-        assert!(matches!(events_of(&log, "fast").last(), Some(EngineEvent::Done { .. })));
+        assert!(matches!(
+            events_of(&log, "fast").last(),
+            Some(EngineEvent::Done { .. })
+        ));
 
         // Nothing is reported after the drop.
         let before = log.lock().map(|l| l.len()).unwrap_or(0);

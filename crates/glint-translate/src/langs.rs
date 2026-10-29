@@ -57,11 +57,13 @@ impl Lang {
         if primary == "zh" {
             // The script or region decides: `zh-Hant-HK` and `zh-TW` are Traditional; a bare
             // `zh`, `zh-CN`, `zh-SG` and `zh-Hans-CN` are Simplified.
-            return Some(if tags.any(|t| matches!(t, "hant" | "tw" | "hk" | "mo" | "cht")) {
-                Lang::ZhHant
-            } else {
-                Lang::ZhHans
-            });
+            return Some(
+                if tags.any(|t| matches!(t, "hant" | "tw" | "hk" | "mo" | "cht")) {
+                    Lang::ZhHant
+                } else {
+                    Lang::ZhHans
+                },
+            );
         }
         Some(match primary {
             "en" => Lang::En,
@@ -144,7 +146,12 @@ pub(crate) fn same_engine_lang(a: &str, b: &str) -> bool {
     fn key(code: &str) -> String {
         let c = code.trim().replace('_', "-").to_ascii_lowercase();
         let primary = c.split('-').next().unwrap_or("").to_string();
-        if c == "cht" || (primary == "zh" && ["hant", "cht", "tw", "hk", "mo"].iter().any(|t| c.contains(t))) {
+        if c == "cht"
+            || (primary == "zh"
+                && ["hant", "cht", "tw", "hk", "mo"]
+                    .iter()
+                    .any(|t| c.contains(t)))
+        {
             return "zh-hant".into();
         }
         if primary == "zh" || c == "chs" {
@@ -189,7 +196,10 @@ pub(crate) fn llm_name(code: &str) -> String {
 
 fn resolve(engine: &str, code: &str, role: Role) -> Result<Lang> {
     let lang = Lang::parse(code).ok_or_else(|| {
-        TranslateError::Config(format!("{engine} does not support the language \"{}\"", code.trim()))
+        TranslateError::Config(format!(
+            "{engine} does not support the language \"{}\"",
+            code.trim()
+        ))
     })?;
     if lang == Lang::Auto && role == Role::Target {
         return Err(TranslateError::Config(
@@ -280,7 +290,8 @@ mod tests {
     use super::*;
 
     const ALL: [&str; 14] = [
-        "zh-Hans", "zh-Hant", "en", "ja", "ko", "fr", "de", "es", "ru", "pt", "it", "vi", "th", "ar",
+        "zh-Hans", "zh-Hant", "en", "ja", "ko", "fr", "de", "es", "ru", "pt", "it", "vi", "th",
+        "ar",
     ];
 
     #[test]
@@ -346,7 +357,9 @@ mod tests {
     #[test]
     fn unsupported_codes_and_auto_target_are_clear_errors() {
         let e = google("xx", Role::Target).unwrap_err();
-        assert!(matches!(e, TranslateError::Config(ref m) if m.contains("Google") && m.contains("xx")));
+        assert!(
+            matches!(e, TranslateError::Config(ref m) if m.contains("Google") && m.contains("xx"))
+        );
         let e = baidu("auto", Role::Target).unwrap_err();
         assert!(matches!(e, TranslateError::Config(ref m) if m.contains("target language")));
         assert!(deepl("tlh", Role::Source).is_err());

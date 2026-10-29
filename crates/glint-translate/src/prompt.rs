@@ -70,9 +70,7 @@ fn direction(req: &TranslateRequest) -> String {
     }
     if langs::same_lang(&req.source_lang, &req.target_lang) {
         return match secondary {
-            Some(sec) => format!(
-                "The text is written in {target}. Translate it into {sec}."
-            ),
+            Some(sec) => format!("The text is written in {target}. Translate it into {sec}."),
             None => format!(
                 "The text is written in {target} and the target is the same language: return it \
                  unchanged apart from corrected OCR errors."
@@ -177,7 +175,9 @@ mod tests {
         let p = system_prompt(&req("auto", "zh-Hans", Some("en")), None);
         assert!(p.contains("detect it"));
         assert!(p.contains("into Simplified Chinese"));
-        assert!(p.contains("already written in Simplified Chinese, translate it into English instead"));
+        assert!(
+            p.contains("already written in Simplified Chinese, translate it into English instead")
+        );
     }
 
     #[test]
@@ -219,7 +219,10 @@ mod tests {
             "<source_text>\nHello\nWorld\n</source_text>"
         );
         // Leading indentation on the first line survives.
-        assert_eq!(user_message("    indented"), "<source_text>\n    indented\n</source_text>");
+        assert_eq!(
+            user_message("    indented"),
+            "<source_text>\n    indented\n</source_text>"
+        );
     }
 
     #[test]
@@ -244,7 +247,10 @@ mod tests {
     #[test]
     fn max_tokens_scales_with_input_and_is_clamped() {
         assert_eq!(max_output_tokens("", 0), 256);
-        assert_eq!(max_output_tokens("hello", 0), 256 + 6 /* ceil(5/2)=3 -> *2 */);
+        assert_eq!(
+            max_output_tokens("hello", 0),
+            256 + 6 /* ceil(5/2)=3 -> *2 */
+        );
         let long = "a".repeat(2_000);
         assert_eq!(max_output_tokens(&long, 0), 2_000 + 256);
         assert_eq!(max_output_tokens(&long, 2_048), 2_000 + 256 + 2_048);

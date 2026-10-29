@@ -31,12 +31,25 @@ pub(crate) struct Google {
 impl Google {
     pub fn new(cfg: &EngineConfig, http: reqwest::Client) -> Self {
         let api_key = non_empty(cfg.api_key.as_deref()).map(str::to_owned);
-        let default_base = if api_key.is_some() { OFFICIAL_BASE } else { FREE_BASE };
+        let default_base = if api_key.is_some() {
+            OFFICIAL_BASE
+        } else {
+            FREE_BASE
+        };
         let base = non_empty(cfg.base_url.as_deref()).unwrap_or(default_base);
-        Google { api_key, base: base.trim_end_matches('/').to_string(), http }
+        Google {
+            api_key,
+            base: base.trim_end_matches('/').to_string(),
+            http,
+        }
     }
 
-    async fn call_free(&self, text: &str, from: &str, to: &str) -> std::result::Result<MtOut, Failure> {
+    async fn call_free(
+        &self,
+        text: &str,
+        from: &str,
+        to: &str,
+    ) -> std::result::Result<MtOut, Failure> {
         // POST, because a GET puts the text in the URL and long texts exceed its length limit.
         let rb = self
             .http
@@ -48,7 +61,13 @@ impl Google {
         Ok(parse_free(&body)?)
     }
 
-    async fn call_official(&self, key: &str, text: &str, from: &str, to: &str) -> std::result::Result<MtOut, Failure> {
+    async fn call_official(
+        &self,
+        key: &str,
+        text: &str,
+        from: &str,
+        to: &str,
+    ) -> std::result::Result<MtOut, Failure> {
         let mut body = json!({"q": text, "target": to, "format": "text"});
         if from != "auto" {
             body["source"] = json!(from);
@@ -121,7 +140,10 @@ pub(crate) fn parse_v2(body: &str) -> std::result::Result<MtOut, TranslateError>
         .ok_or_else(|| parse_err("the response has no translated text"))?;
     Ok(MtOut {
         text: text.to_string(),
-        detected: first.get("detectedSourceLanguage").and_then(Value::as_str).map(str::to_owned),
+        detected: first
+            .get("detectedSourceLanguage")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -138,18 +160,36 @@ mod tests {
     #[test]
     fn multi_sentence_text_keeps_its_line_breaks() {
         let out = parse_free(MULTILINE).expect("parses");
-        assert_eq!(out.text, "你好世界。\n这是第二行。请保留它。\n\n- 第一项\n- 第二项");
+        assert_eq!(
+            out.text,
+            "你好世界。\n这是第二行。请保留它。\n\n- 第一项\n- 第二项"
+        );
         assert_eq!(out.detected.as_deref(), Some("en"));
     }
 
     #[test]
     fn detects_the_source_language() {
-        assert_eq!(parse_free(FROM_CHINESE).expect("parses").detected.as_deref(), Some("zh-CN"));
+        assert_eq!(
+            parse_free(FROM_CHINESE)
+                .expect("parses")
+                .detected
+                .as_deref(),
+            Some("zh-CN")
+        );
         let out = parse_free(FROM_CHINESE).expect("parses");
         assert_eq!(out.text, "Hello World.\nThis is the second line.");
         let out = parse_free(SIMPLE).expect("parses");
-        assert_eq!((out.text.as_str(), out.detected.as_deref()), ("你好", Some("en")));
-        assert_eq!(parse_free(SAME_LANGUAGE).expect("parses").detected.as_deref(), Some("en"));
+        assert_eq!(
+            (out.text.as_str(), out.detected.as_deref()),
+            ("你好", Some("en"))
+        );
+        assert_eq!(
+            parse_free(SAME_LANGUAGE)
+                .expect("parses")
+                .detected
+                .as_deref(),
+            Some("en")
+        );
     }
 
     #[test]
@@ -161,13 +201,30 @@ mod tests {
         assert_eq!(out.detected, None);
         // Detection only in the alternative position.
         let body = r#"[[["x","y"]],null,null,null,null,null,null,null,[["fr"]]]"#;
-        assert_eq!(parse_free(body).expect("parses").detected.as_deref(), Some("fr"));
+        assert_eq!(
+            parse_free(body).expect("parses").detected.as_deref(),
+            Some("fr")
+        );
     }
 
     #[test]
     fn unexpected_shapes_are_parse_errors_not_panics() {
-        for body in ["", "<html>captcha</html>", "null", "{}", "[]", "[null]", "[[]]", r#"[[[null]]]"#, r#"[["x"]]"#, "42"] {
-            assert!(matches!(parse_free(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "<html>captcha</html>",
+            "null",
+            "{}",
+            "[]",
+            "[null]",
+            "[[]]",
+            r#"[[[null]]]"#,
+            r#"[["x"]]"#,
+            "42",
+        ] {
+            assert!(
+                matches!(parse_free(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 
@@ -175,11 +232,22 @@ mod tests {
     fn parses_v2_responses() {
         let body = r#"{"data":{"translations":[{"translatedText":"Bonjour","detectedSourceLanguage":"en"}]}}"#;
         let out = parse_v2(body).expect("parses");
-        assert_eq!((out.text.as_str(), out.detected.as_deref()), ("Bonjour", Some("en")));
+        assert_eq!(
+            (out.text.as_str(), out.detected.as_deref()),
+            ("Bonjour", Some("en"))
+        );
         let body = r#"{"data":{"translations":[{"translatedText":"Bonjour"}]}}"#;
         assert_eq!(parse_v2(body).expect("parses").detected, None);
-        for body in ["", "{}", r#"{"data":{"translations":[]}}"#, r#"{"data":{"translations":[{}]}}"#] {
-            assert!(matches!(parse_v2(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "{}",
+            r#"{"data":{"translations":[]}}"#,
+            r#"{"data":{"translations":[{}]}}"#,
+        ] {
+            assert!(
+                matches!(parse_v2(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 
@@ -187,9 +255,15 @@ mod tests {
     fn base_url_defaults_depend_on_the_mode() {
         let http = reqwest::Client::new();
         let mut cfg = crate::default_engines().remove(0);
-        assert_eq!(Google::new(&cfg, http.clone()).base, "https://translate.googleapis.com");
+        assert_eq!(
+            Google::new(&cfg, http.clone()).base,
+            "https://translate.googleapis.com"
+        );
         cfg.api_key = Some("k".into());
-        assert_eq!(Google::new(&cfg, http.clone()).base, "https://translation.googleapis.com");
+        assert_eq!(
+            Google::new(&cfg, http.clone()).base,
+            "https://translation.googleapis.com"
+        );
         cfg.base_url = Some("http://127.0.0.1:9/".into());
         assert_eq!(Google::new(&cfg, http).base, "http://127.0.0.1:9");
     }

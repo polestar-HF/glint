@@ -40,8 +40,11 @@ env:
   MODELS_WITH_DICT: "false"
   # Portable zip layout: <exe> + these folders from target/release (the
   # resources tauri-build copied next to the exe) + any DLLs next to the exe.
+  # The files in PORTABLE_REQUIRED_FILES must be among them (glint-ocr loads
+  # onnxruntime.dll at run time; see bundle.resources in tauri.conf.json).
   APP_BIN: glint
   PORTABLE_RESOURCE_DIRS: models
+  PORTABLE_REQUIRED_FILES: onnxruntime.dll
   # Size KPI: installer budget (MiB). Exceeding it warns, it does not fail.
   INSTALLER_BUDGET_MIB: "45"
 
@@ -74,10 +77,6 @@ jobs:
           # Only the default branch writes the cache; PRs and tags read it.
           save-if: ${{ github.ref_name == github.event.repository.default_branch }}
           cache-on-failure: true
-          # glint-ocr's ort-static feature: ort-sys downloads ONNX Runtime into
-          # this folder and links it from there. It has to be cached together
-          # with target/, or a cache hit skips the download and linking fails.
-          cache-directories: ~/AppData/Local/ort.pyke.io
 
       - name: Set up Node ${{ env.NODE_VERSION }}
         uses: actions/setup-node@v6
@@ -91,21 +90,30 @@ jobs:
         run: npm ci --no-audit --no-fund
 
       # The cache key is derived from the fetch scripts, which hold the pinned
-      # SHA-256 checksums; the script re-verifies whatever the cache restored.
-      - name: Cache OCR models
+      # SHA-256 checksums; the scripts re-verify whatever the cache restored.
+      - name: Cache OCR models and ONNX Runtime
         uses: actions/cache@v5
         with:
-          path: src-tauri/resources/models
-          key: models-${{ runner.os }}-dict-${{ env.MODELS_WITH_DICT }}-${{ hashFiles('scripts/fetch-models.*', 'scripts/onnx_meta.py') }}
+          path: |
+            src-tauri/resources/models
+            src-tauri/resources/onnxruntime.dll
+          key: ocr-assets-${{ runner.os }}-dict-${{ env.MODELS_WITH_DICT }}-${{ hashFiles('scripts/fetch-models.*', 'scripts/fetch-runtime.*', 'scripts/onnx_meta.py') }}
 
       # Must run before any cargo step on `glint`: tauri-build copies the
-      # bundled resources (models) and errors out if they are missing.
-      - name: Fetch OCR models
+      # bundled resources (models, onnxruntime.dll) and errors out if they
+      # are missing.
+      - name: Fetch OCR models and ONNX Runtime
         shell: pwsh
         run: |
           $fetchArgs = @()
           if ($env:MODELS_WITH_DICT -eq 'true') { $fetchArgs += '-WithDict' }
           ./scripts/fetch-models.ps1 @fetchArgs
+          ./scripts/fetch-runtime.ps1
+          # glint-ocr (ort-dynamic) reads ORT_DYLIB_PATH; the tests in target/
+          # have no onnxruntime.dll next to them. A full path also keeps an
+          # older System32\onnxruntime.dll from being picked up.
+          $dll = (Resolve-Path 'src-tauri/resources/onnxruntime.dll').Path
+          "ORT_DYLIB_PATH=$dll" >> $env:GITHUB_ENV
 
       # Must run before any cargo step on `glint` as well: the crate embeds
       # ui/dist at compile time (tauri::generate_context!).
@@ -170,6 +178,12 @@ jobs:
           }
           $dlls = @(Get-ChildItem $profileDir -Filter '*.dll' -File)
           $dlls | Copy-Item -Destination $stage
+          foreach ($file in ($env:PORTABLE_REQUIRED_FILES -split ',')) {
+            $file = $file.Trim()
+            if ($file -and -not (Test-Path -LiteralPath (Join-Path $stage $file) -PathType Leaf)) {
+              throw "Required file '$file' not found in $profileDir (check bundle.resources in tauri.conf.json)"
+            }
+          }
 
           $zip = Join-Path $dist.FullName "$stageName.zip"
           Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
@@ -196,7 +210,10 @@ jobs:
             "| ``$stageName.zip`` | $(Format-Mib (Get-Item $zip).Length) | portable: exe + resources + DLLs |",
             "| ``models/`` | $(Format-Mib $modelsBytes) | unpacked, inside both of the above |"
           )
-          foreach ($dll in $dlls) { $rows += "| ``$($dll.Name)`` | $(Format-Mib $dll.Length) | DLL next to the exe |" }
+          foreach ($dll in $dlls) {
+            $note = if ($dll.Name -eq 'onnxruntime.dll') { 'ONNX Runtime (CPU), next to the exe' } else { 'DLL next to the exe' }
+            $rows += "| ``$($dll.Name)`` | $(Format-Mib $dll.Length) | $note |"
+          }
           $rows | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
           $rows | ForEach-Object { Write-Host $_ }
 

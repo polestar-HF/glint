@@ -62,7 +62,9 @@ pub(crate) fn build(cfg: &EngineConfig, http: &reqwest::Client) -> Result<Box<dy
         "youdao" => Box::new(MtEngine::new(id, name, youdao::Youdao::new(cfg, http)?)),
         "baidu" => Box::new(MtEngine::new(id, name, baidu::Baidu::new(cfg, http)?)),
         other => {
-            return Err(TranslateError::Config(format!("Unknown translation engine \"{other}\"")))
+            return Err(TranslateError::Config(format!(
+                "Unknown translation engine \"{other}\""
+            )))
         }
     })
 }
@@ -136,9 +138,10 @@ impl<B: Backend> Translator for MtEngine<B> {
         // Source "auto" and the text turned out to be in the target language already: translate
         // it into the secondary language instead (one more request, only in this case).
         if langs::is_auto(&req.source_lang) {
-            if let (Some(detected), Some(sec)) =
-                (out.detected.as_deref(), langs::usable_secondary(&target, secondary))
-            {
+            if let (Some(detected), Some(sec)) = (
+                out.detected.as_deref(),
+                langs::usable_secondary(&target, secondary),
+            ) {
                 if langs::same_engine_lang(detected, to) {
                     let to2 = self.backend.lang(sec, Role::Target)?;
                     out = retrying(|| self.backend.call(text, from, to2)).await?;
@@ -155,7 +158,10 @@ impl<B: Backend> Translator for MtEngine<B> {
 /// as decimal digits (Baidu wants a number, Youdao accepts any string).
 pub(crate) fn unique_salt() -> String {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos())
+        .unwrap_or(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("{}{:04}", nanos % 1_000_000_000_000, n % 10_000)
 }
@@ -209,17 +215,26 @@ mod tests {
         assert_eq!(effective_model(&c), "");
     }
 
+    type Calls = Arc<Mutex<Vec<(String, String)>>>;
+
     /// A scripted backend: answers per call with (text, detected), records (from, to).
     struct Script {
         answers: Mutex<Vec<MtOut>>,
-        calls: Arc<Mutex<Vec<(String, String)>>>,
+        calls: Calls,
         count: AtomicUsize,
     }
 
     impl Script {
-        fn new(answers: Vec<MtOut>) -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
+        fn new(answers: Vec<MtOut>) -> (Self, Calls) {
             let calls = Arc::new(Mutex::new(Vec::new()));
-            (Script { answers: Mutex::new(answers), calls: calls.clone(), count: AtomicUsize::new(0) }, calls)
+            (
+                Script {
+                    answers: Mutex::new(answers),
+                    calls: calls.clone(),
+                    count: AtomicUsize::new(0),
+                },
+                calls,
+            )
         }
     }
 
@@ -228,19 +243,33 @@ mod tests {
         fn lang(&self, code: &str, role: Role) -> Result<&'static str> {
             langs::google(code, role)
         }
-        async fn call(&self, _text: &str, from: &str, to: &str) -> std::result::Result<MtOut, Failure> {
+        async fn call(
+            &self,
+            _text: &str,
+            from: &str,
+            to: &str,
+        ) -> std::result::Result<MtOut, Failure> {
             self.count.fetch_add(1, Ordering::SeqCst);
-            self.calls.lock().unwrap_or_else(|p| p.into_inner()).push((from.into(), to.into()));
+            self.calls
+                .lock()
+                .unwrap_or_else(|p| p.into_inner())
+                .push((from.into(), to.into()));
             let mut a = self.answers.lock().unwrap_or_else(|p| p.into_inner());
             Ok(a.remove(0))
         }
     }
 
     fn out(text: &str, detected: Option<&str>) -> MtOut {
-        MtOut { text: text.into(), detected: detected.map(str::to_owned) }
+        MtOut {
+            text: text.into(),
+            detected: detected.map(str::to_owned),
+        }
     }
 
-    async fn run(engine: &impl Translator, req: &TranslateRequest) -> (Result<String>, Vec<String>) {
+    async fn run(
+        engine: &impl Translator,
+        req: &TranslateRequest,
+    ) -> (Result<String>, Vec<String>) {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let res = engine.translate(req, tx).await;
         let mut deltas = Vec::new();
@@ -259,20 +288,36 @@ mod tests {
         let (res, deltas) = run(&e, &req).await;
         assert_eq!(res.ok().as_deref(), Some("你好"));
         assert_eq!(deltas, vec!["你好".to_string()]);
-        assert_eq!(*calls.lock().unwrap_or_else(|p| p.into_inner()), vec![("auto".to_string(), "zh-CN".to_string())]);
+        assert_eq!(
+            *calls.lock().unwrap_or_else(|p| p.into_inner()),
+            vec![("auto".to_string(), "zh-CN".to_string())]
+        );
     }
 
     #[tokio::test]
     async fn auto_source_in_target_language_flips_to_secondary() {
-        let (b, calls) = Script::new(vec![out("你好", Some("zh-CN")), out("Hello", Some("zh-CN"))]);
+        let (b, calls) = Script::new(vec![
+            out("你好", Some("zh-CN")),
+            out("Hello", Some("zh-CN")),
+        ]);
         let e = MtEngine::new("g".into(), "G".into(), b);
         let mut req = TranslateRequest::new("你好", "auto", "zh-Hans");
         req.secondary_lang = Some("en".into());
         let (res, deltas) = run(&e, &req).await;
         assert_eq!(res.ok().as_deref(), Some("Hello"));
-        assert_eq!(deltas, vec!["Hello".to_string()], "only the final text is shown");
+        assert_eq!(
+            deltas,
+            vec!["Hello".to_string()],
+            "only the final text is shown"
+        );
         let calls = calls.lock().unwrap_or_else(|p| p.into_inner()).clone();
-        assert_eq!(calls, vec![("auto".into(), "zh-CN".into()), ("auto".into(), "en".into())]);
+        assert_eq!(
+            calls,
+            vec![
+                ("auto".into(), "zh-CN".into()),
+                ("auto".into(), "en".into())
+            ]
+        );
     }
 
     #[tokio::test]
@@ -284,7 +329,11 @@ mod tests {
             req.secondary_lang = sec.map(str::to_owned);
             let (res, _) = run(&e, &req).await;
             assert_eq!(res.ok().as_deref(), Some("你好"), "{sec:?}");
-            assert_eq!(calls.lock().unwrap_or_else(|p| p.into_inner()).len(), 1, "{sec:?}");
+            assert_eq!(
+                calls.lock().unwrap_or_else(|p| p.into_inner()).len(),
+                1,
+                "{sec:?}"
+            );
         }
     }
 
@@ -308,7 +357,10 @@ mod tests {
         req.secondary_lang = Some("zh-Hans".into());
         let (res, _) = run(&e, &req).await;
         assert_eq!(res.ok().as_deref(), Some("你好"));
-        assert_eq!(calls.lock().unwrap_or_else(|p| p.into_inner())[0], ("en".to_string(), "zh-CN".to_string()));
+        assert_eq!(
+            calls.lock().unwrap_or_else(|p| p.into_inner())[0],
+            ("en".to_string(), "zh-CN".to_string())
+        );
 
         let (b, calls) = Script::new(vec![]);
         let e = MtEngine::new("g".into(), "G".into(), b);
@@ -316,7 +368,10 @@ mod tests {
         let (res, deltas) = run(&e, &req).await;
         assert_eq!(res.ok().as_deref(), Some("hello"));
         assert_eq!(deltas, vec!["hello".to_string()]);
-        assert!(calls.lock().unwrap_or_else(|p| p.into_inner()).is_empty(), "no request is made");
+        assert!(
+            calls.lock().unwrap_or_else(|p| p.into_inner()).is_empty(),
+            "no request is made"
+        );
     }
 
     #[tokio::test]

@@ -35,7 +35,10 @@ impl Recorded {
 
     pub fn header(&self, name: &str) -> Option<&str> {
         let name = name.to_ascii_lowercase();
-        self.headers.iter().find(|(k, _)| *k == name).map(|(_, v)| v.as_str())
+        self.headers
+            .iter()
+            .find(|(k, _)| *k == name)
+            .map(|(_, v)| v.as_str())
     }
 
     pub fn json(&self) -> serde_json::Value {
@@ -47,11 +50,18 @@ impl Recorded {
     }
 
     pub fn form_value(&self, key: &str) -> String {
-        self.form().into_iter().find(|(k, _)| k == key).map(|(_, v)| v).unwrap_or_default()
+        self.form()
+            .into_iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
+            .unwrap_or_default()
     }
 
     pub fn query_value(&self, key: &str) -> Option<String> {
-        self.query().into_iter().find(|(k, _)| k == key).map(|(_, v)| v)
+        self.query()
+            .into_iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v)
     }
 }
 
@@ -92,9 +102,9 @@ fn percent_decode(s: &str) -> String {
 pub enum Body {
     Full(Vec<u8>),
     /// Chunks with a delay (milliseconds) before each one.
-    Chunks(Vec<(u64, Vec<u8>)>),
+    Chunks(Chunks),
     /// Send these chunks, then keep the connection open until the client goes away.
-    HangAfter(Vec<(u64, Vec<u8>)>),
+    HangAfter(Chunks),
 }
 
 pub struct Reply {
@@ -160,6 +170,9 @@ pub fn split_every(s: &str, n: usize) -> Vec<String> {
     out
 }
 
+type Handler = dyn Fn(&Recorded, usize) -> Reply + Send + Sync;
+type Chunks = Vec<(u64, Vec<u8>)>;
+
 pub struct Mock {
     /// `http://127.0.0.1:PORT`
     pub base: String,
@@ -177,14 +190,16 @@ impl Mock {
         let port = listener.local_addr().expect("addr").port();
         let requests = Arc::new(Mutex::new(Vec::new()));
         let disconnects = Arc::new(AtomicUsize::new(0));
-        let handler: Arc<dyn Fn(&Recorded, usize) -> Reply + Send + Sync> = Arc::new(handler);
+        let handler: Arc<Handler> = Arc::new(handler);
         let counter = Arc::new(AtomicUsize::new(0));
         {
             let requests = requests.clone();
             let disconnects = disconnects.clone();
             tokio::spawn(async move {
                 loop {
-                    let Ok((stream, _)) = listener.accept().await else { break };
+                    let Ok((stream, _)) = listener.accept().await else {
+                        break;
+                    };
                     let requests = requests.clone();
                     let disconnects = disconnects.clone();
                     let handler = handler.clone();
@@ -195,11 +210,18 @@ impl Mock {
                 }
             });
         }
-        Mock { base: format!("http://127.0.0.1:{port}"), requests, disconnects }
+        Mock {
+            base: format!("http://127.0.0.1:{port}"),
+            requests,
+            disconnects,
+        }
     }
 
     pub fn requests(&self) -> Vec<Recorded> {
-        self.requests.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.requests
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     pub fn count(&self) -> usize {
@@ -214,14 +236,19 @@ impl Mock {
 
 async fn serve(
     mut stream: TcpStream,
-    handler: Arc<dyn Fn(&Recorded, usize) -> Reply + Send + Sync>,
+    handler: Arc<Handler>,
     counter: Arc<AtomicUsize>,
     requests: Arc<Mutex<Vec<Recorded>>>,
     disconnects: Arc<AtomicUsize>,
 ) {
-    let Some(rec) = read_request(&mut stream).await else { return };
+    let Some(rec) = read_request(&mut stream).await else {
+        return;
+    };
     let index = counter.fetch_add(1, Ordering::SeqCst);
-    requests.lock().unwrap_or_else(|p| p.into_inner()).push(rec.clone());
+    requests
+        .lock()
+        .unwrap_or_else(|p| p.into_inner())
+        .push(rec.clone());
     let reply = handler(&rec, index);
 
     let reason = match reply.status {
@@ -236,7 +263,10 @@ async fn serve(
         503 => "Service Unavailable",
         _ => "Status",
     };
-    let mut head = format!("HTTP/1.1 {} {}\r\nConnection: close\r\n", reply.status, reason);
+    let mut head = format!(
+        "HTTP/1.1 {} {}\r\nConnection: close\r\n",
+        reply.status, reason
+    );
     for (k, v) in &reply.headers {
         head.push_str(&format!("{k}: {v}\r\n"));
     }
@@ -258,7 +288,8 @@ async fn serve(
                 // Wait for the client to hang up; that is how cancellation shows on the wire.
                 let mut buf = [0u8; 64];
                 loop {
-                    match tokio::time::timeout(Duration::from_secs(20), stream.read(&mut buf)).await {
+                    match tokio::time::timeout(Duration::from_secs(20), stream.read(&mut buf)).await
+                    {
                         Ok(Ok(0)) | Ok(Err(_)) => {
                             disconnects.fetch_add(1, Ordering::SeqCst);
                             break;
@@ -275,13 +306,18 @@ async fn serve(
 }
 
 /// Write the head and then each chunk after its delay. False if the client went away.
-async fn send_chunks(stream: &mut TcpStream, head: &str, chunks: Vec<(u64, Vec<u8>)>) -> bool {
+async fn send_chunks(stream: &mut TcpStream, head: &str, chunks: Chunks) -> bool {
     if stream.write_all(head.as_bytes()).await.is_err() {
         return false;
     }
     for (delay, data) in chunks {
         tokio::time::sleep(Duration::from_millis(delay)).await;
-        let frame = [format!("{:x}\r\n", data.len()).into_bytes(), data, b"\r\n".to_vec()].concat();
+        let frame = [
+            format!("{:x}\r\n", data.len()).into_bytes(),
+            data,
+            b"\r\n".to_vec(),
+        ]
+        .concat();
         if stream.write_all(&frame).await.is_err() || stream.flush().await.is_err() {
             return false;
         }
@@ -325,7 +361,12 @@ async fn read_request(stream: &mut TcpStream) -> Option<Recorded> {
         body.extend_from_slice(&tmp[..n]);
     }
     body.truncate(len);
-    Some(Recorded { method, target, headers, body })
+    Some(Recorded {
+        method,
+        target,
+        headers,
+        body,
+    })
 }
 
 fn find(hay: &[u8], needle: &[u8]) -> Option<usize> {

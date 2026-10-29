@@ -31,15 +31,15 @@ jobs:
     timeout-minutes: 30
     env:
       RUST_TOOLCHAIN: "1.97.0" # "stable" also works
-      # Per-crate cargo flags: adjust here. glint-ocr: the OCR engineer defines
-      # the features ort-static (default) and ort-dynamic; use "" to test the
-      # default on Linux. The `src-tauri` crate is Windows-only for us (see
-      # windows-build.yml).
-      OCR_FLAGS: "--no-default-features --features ort-dynamic"
+      # Per-crate cargo flags: adjust here. glint-ocr uses its default
+      # feature, ort-dynamic (ONNX Runtime loaded at run time, see ORT_* below).
+      # The `src-tauri` crate is Windows-only for us (see windows-build.yml).
+      OCR_FLAGS: ""
       # Set to "true" if glint-ocr needs dict.txt next to det.onnx / rec.onnx.
       MODELS_WITH_DICT: "false"
-      # ONNX Runtime shared library for ort-dynamic tests, taken from the PyPI
-      # wheel (identical in every cpXY wheel); exported as ORT_DYLIB_PATH.
+      # Linux ONNX Runtime shared library for the glint-ocr tests, taken from
+      # the PyPI wheel (identical in every cpXY wheel); exported as
+      # ORT_DYLIB_PATH. Keep ORT_VERSION equal to scripts/fetch-runtime.*.
       ORT_VERSION: "1.31.1"
       ORT_LIB_SHA256: "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
     steps:
@@ -65,16 +65,22 @@ jobs:
 
       - name: Check that the fetch scripts agree
         run: |
-          # fetch-models.sh and .ps1 pin the same wheel, members and checksums.
+          # Each .sh / .ps1 pair pins the same wheel version, members and checksums.
           pins() {
-            grep -ohE '[0-9a-f]{64}|rapidocr/models/[A-Za-z0-9_.-]+\.onnx' "$1" | sort -u
-            sed -nE "s/^RAPIDOCR_VERSION=\"(.*)\"/version \1/p; s/^\\\$RapidocrVersion = '(.*)'/version \1/p" "$1"
+            grep -ohE '[0-9a-f]{64}|(rapidocr/models|onnxruntime/capi)/[A-Za-z0-9_.-]+\.(onnx|dll)' "$1" | sort -u
+            sed -nE "s/^(RAPIDOCR|ORT)_VERSION=\"(.*)\"/version \L\1 \E\2/p; s/^\\\$(Rapidocr|Ort)Version = '(.*)'/version \L\1 \E\2/p" "$1"
           }
-          if ! diff <(pins scripts/fetch-models.sh) <(pins scripts/fetch-models.ps1); then
-            echo "::error::scripts/fetch-models.sh and scripts/fetch-models.ps1 pin different values"
-            exit 1
-          fi
+          status=0
+          for name in fetch-models fetch-runtime; do
+            if ! diff <(pins "scripts/$name.sh") <(pins "scripts/$name.ps1"); then
+              echo "::error::scripts/$name.sh and scripts/$name.ps1 pin different values"
+              status=1
+            fi
+          done
+          exit "$status"
 
+      # (The Windows onnxruntime.dll from fetch-runtime.* is only needed by
+      # windows-build.yml; Linux uses the ORT shared library fetched below.)
       - name: Cache OCR models
         uses: actions/cache@v5
         with:

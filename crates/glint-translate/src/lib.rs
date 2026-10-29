@@ -4,7 +4,7 @@
 //!
 //! Typical wiring in the app:
 //!
-//! ```ignore
+//! ```text
 //! let http = glint_translate::http_client();           // connect timeout 5 s, rustls
 //! let cache = glint_translate::Cache::default();        // share one for the whole app
 //! let engines: Vec<Box<dyn Translator>> = cfg.engines.iter()
@@ -163,8 +163,18 @@ pub fn default_engines() -> Vec<EngineConfig> {
     vec![
         mk("google", "google", true, None),
         mk("bing", "bing", true, None),
-        mk("claude", "anthropic", false, Some(engines::DEFAULT_ANTHROPIC_MODEL)),
-        mk("openai", "openai", false, Some(engines::DEFAULT_OPENAI_MODEL)),
+        mk(
+            "claude",
+            "anthropic",
+            false,
+            Some(engines::DEFAULT_ANTHROPIC_MODEL),
+        ),
+        mk(
+            "openai",
+            "openai",
+            false,
+            Some(engines::DEFAULT_OPENAI_MODEL),
+        ),
         mk("deepl", "deepl", false, None),
         mk("youdao", "youdao", false, None),
         mk("baidu", "baidu", false, None),
@@ -184,7 +194,10 @@ mod tests {
     fn default_engine_list_matches_the_contract() {
         let list = default_engines();
         let ids: Vec<_> = list.iter().map(|e| e.id.as_str()).collect();
-        assert_eq!(ids, ["google", "bing", "claude", "openai", "deepl", "youdao", "baidu"]);
+        assert_eq!(
+            ids,
+            ["google", "bing", "claude", "openai", "deepl", "youdao", "baidu"]
+        );
         let enabled: Vec<_> = list.iter().map(|e| e.enabled).collect();
         assert_eq!(enabled, [true, true, false, false, false, false, false]);
         assert_eq!(list[2].kind, "anthropic");
@@ -220,14 +233,18 @@ mod tests {
 
     #[test]
     fn user_message_drops_the_technical_prefix() {
-        let e = TranslateError::Service { status: 401, message: "Invalid API key".into() };
+        let e = TranslateError::Service {
+            status: 401,
+            message: "Invalid API key".into(),
+        };
         assert_eq!(e.to_string(), "service error (401): Invalid API key");
         assert_eq!(e.user_message(), "Invalid API key");
     }
 
     #[test]
     fn engine_config_round_trips_camel_case() {
-        let json = r#"{"id":"c","kind":"anthropic","enabled":true,"apiKey":"k","baseUrl":"http://x"}"#;
+        let json =
+            r#"{"id":"c","kind":"anthropic","enabled":true,"apiKey":"k","baseUrl":"http://x"}"#;
         let cfg: EngineConfig = serde_json::from_str(json).expect("parse");
         assert_eq!(cfg.api_key.as_deref(), Some("k"));
         assert_eq!(cfg.base_url.as_deref(), Some("http://x"));

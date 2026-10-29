@@ -34,7 +34,9 @@ impl Baidu {
             .ok_or_else(|| TranslateError::Config("The Baidu APP ID is not set".into()))?;
         let secret = non_empty(cfg.api_secret.as_deref())
             .ok_or_else(|| TranslateError::Config("The Baidu secret key is not set".into()))?;
-        let base = non_empty(cfg.base_url.as_deref()).unwrap_or(DEFAULT_BASE).trim_end_matches('/');
+        let base = non_empty(cfg.base_url.as_deref())
+            .unwrap_or(DEFAULT_BASE)
+            .trim_end_matches('/');
         Ok(Baidu {
             app_id: app_id.to_string(),
             secret: secret.to_string(),
@@ -104,12 +106,18 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
         .get("trans_result")
         .and_then(Value::as_array)
         .ok_or_else(|| parse_err("the response has no translation"))?;
-    let dst: Vec<&str> = lines.iter().filter_map(|l| l.get("dst").and_then(Value::as_str)).collect();
+    let dst: Vec<&str> = lines
+        .iter()
+        .filter_map(|l| l.get("dst").and_then(Value::as_str))
+        .collect();
     let text = dst.join("\n");
     if text.trim().is_empty() {
         return Err(parse_err("the translation is empty"));
     }
-    Ok(MtOut { text, detected: v.get("from").and_then(Value::as_str).map(str::to_owned) })
+    Ok(MtOut {
+        text,
+        detected: v.get("from").and_then(Value::as_str).map(str::to_owned),
+    })
 }
 
 /// Baidu's error codes, as an (HTTP-like status, message) pair.
@@ -117,7 +125,10 @@ fn error_for_code(code: &str) -> (u16, String) {
     let (status, msg): (u16, &str) = match code {
         "52001" => (504, "Baidu timed out"),
         "52002" => (500, "Baidu had a system error"),
-        "52003" => (401, "Invalid APP ID, or the translation service is not enabled for it"),
+        "52003" => (
+            401,
+            "Invalid APP ID, or the translation service is not enabled for it",
+        ),
         "54000" => (400, "A required parameter is missing"),
         "54001" => (401, "Signature check failed (check the secret key)"),
         "54003" => (429, "Rate limited"),
@@ -151,7 +162,12 @@ mod tests {
         // md5("20151113000005349你好，世界\n第二行1435660288osubCEzlGjzvw8qdQc41"), computed with
         // Python's hashlib.
         assert_eq!(
-            sign("20151113000005349", "你好，世界\n第二行", "1435660288", "osubCEzlGjzvw8qdQc41"),
+            sign(
+                "20151113000005349",
+                "你好，世界\n第二行",
+                "1435660288",
+                "osubCEzlGjzvw8qdQc41"
+            ),
             "efe2e411cc8e8e1efe93c13c4a0cfe49"
         );
     }
@@ -170,21 +186,50 @@ mod tests {
             Err(TranslateError::Service { status, message }) => (status, message),
             other => panic!("unexpected {other:?}"),
         };
-        assert_eq!(err(r#"{"error_code":"54001","error_msg":"Invalid Sign"}"#).0, 401);
-        assert!(err(r#"{"error_code":"54001","error_msg":"Invalid Sign"}"#).1.contains("secret key"));
-        assert_eq!(err(r#"{"error_code":"54003","error_msg":"Invalid Access Limit"}"#), (429, "Rate limited".to_string()));
-        assert_eq!(err(r#"{"error_code":"54004","error_msg":"Please recharge"}"#).0, 402);
-        assert_eq!(err(r#"{"error_code":"52003","error_msg":"UNAUTHORIZED USER"}"#).0, 401);
-        assert_eq!(err(r#"{"error_code":"52001","error_msg":"TIMEOUT"}"#).0, 504);
-        assert_eq!(err(r#"{"error_code":"12345"}"#), (500, "Baidu error 12345".to_string()));
+        assert_eq!(
+            err(r#"{"error_code":"54001","error_msg":"Invalid Sign"}"#).0,
+            401
+        );
+        assert!(err(r#"{"error_code":"54001","error_msg":"Invalid Sign"}"#)
+            .1
+            .contains("secret key"));
+        assert_eq!(
+            err(r#"{"error_code":"54003","error_msg":"Invalid Access Limit"}"#),
+            (429, "Rate limited".to_string())
+        );
+        assert_eq!(
+            err(r#"{"error_code":"54004","error_msg":"Please recharge"}"#).0,
+            402
+        );
+        assert_eq!(
+            err(r#"{"error_code":"52003","error_msg":"UNAUTHORIZED USER"}"#).0,
+            401
+        );
+        assert_eq!(
+            err(r#"{"error_code":"52001","error_msg":"TIMEOUT"}"#).0,
+            504
+        );
+        assert_eq!(
+            err(r#"{"error_code":"12345"}"#),
+            (500, "Baidu error 12345".to_string())
+        );
         // Numeric codes work too.
         assert_eq!(err(r#"{"error_code":54003}"#).0, 429);
     }
 
     #[test]
     fn unexpected_bodies_are_parse_errors() {
-        for body in ["", "{}", "<html>", r#"{"trans_result":[]}"#, r#"{"trans_result":[{"src":"a"}]}"#] {
-            assert!(matches!(parse_response(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "{}",
+            "<html>",
+            r#"{"trans_result":[]}"#,
+            r#"{"trans_result":[{"src":"a"}]}"#,
+        ] {
+            assert!(
+                matches!(parse_response(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 
@@ -192,16 +237,27 @@ mod tests {
     fn construction_needs_both_credentials() {
         let http = reqwest::Client::new();
         let mut cfg = crate::default_engines().remove(6);
-        assert!(matches!(Baidu::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("APP ID")));
+        assert!(
+            matches!(Baidu::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("APP ID"))
+        );
         cfg.api_key = Some("id".into());
-        assert!(matches!(Baidu::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("secret")));
+        assert!(
+            matches!(Baidu::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("secret"))
+        );
         cfg.api_secret = Some("s".into());
         assert_eq!(
-            Baidu::new(&cfg, http.clone()).ok().expect("builds").url,
+            Baidu::new(&cfg, http.clone())
+                .unwrap_or_else(|e| panic!("builds: {e}"))
+                .url,
             "https://fanyi-api.baidu.com/api/trans/vip/translate"
         );
         cfg.base_url = Some("http://127.0.0.1:1/".into());
-        assert_eq!(Baidu::new(&cfg, http).ok().expect("builds").url, "http://127.0.0.1:1/api/trans/vip/translate");
+        assert_eq!(
+            Baidu::new(&cfg, http)
+                .unwrap_or_else(|e| panic!("builds: {e}"))
+                .url,
+            "http://127.0.0.1:1/api/trans/vip/translate"
+        );
     }
 
     #[test]
@@ -210,7 +266,7 @@ mod tests {
         let mut cfg = crate::default_engines().remove(6);
         cfg.api_key = Some("id".into());
         cfg.api_secret = Some("s".into());
-        let b = Baidu::new(&cfg, http).ok().expect("builds");
+        let b = Baidu::new(&cfg, http).unwrap_or_else(|e| panic!("builds: {e}"));
         assert!(b.check_len(&"a".repeat(6000)).is_ok());
         assert!(b.check_len(&"a".repeat(6001)).is_err());
         // 2001 CJK characters are 6003 bytes.

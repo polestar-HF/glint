@@ -17,7 +17,8 @@ use serde_json::{json, Value};
 
 use super::{non_empty, parse_err};
 use crate::http::{
-    is_event_stream, join_endpoint, retrying, send, stream_sse, Failure, Provider, Step, LLM_TIMEOUT,
+    is_event_stream, join_endpoint, retrying, send, stream_sse, Failure, Provider, Step,
+    LLM_TIMEOUT,
 };
 use crate::prompt;
 use crate::sse::SseEvent;
@@ -37,12 +38,19 @@ pub(crate) struct OpenAi {
 }
 
 impl OpenAi {
-    pub fn new(id: String, name: String, cfg: &EngineConfig, http: reqwest::Client) -> Result<Self> {
+    pub fn new(
+        id: String,
+        name: String,
+        cfg: &EngineConfig,
+        http: reqwest::Client,
+    ) -> Result<Self> {
         let api_key = non_empty(cfg.api_key.as_deref()).map(str::to_owned);
         let base = non_empty(cfg.base_url.as_deref());
-        let official = base.map_or(true, |b| b.contains("api.openai.com"));
+        let official = base.is_none_or(|b| b.contains("api.openai.com"));
         if official && api_key.is_none() {
-            return Err(TranslateError::Config("The OpenAI API key is not set".into()));
+            return Err(TranslateError::Config(
+                "The OpenAI API key is not set".into(),
+            ));
         }
         Ok(Self {
             id,
@@ -56,7 +64,11 @@ impl OpenAi {
         })
     }
 
-    async fn attempt(&self, body: &Value, deltas: &DeltaSink) -> std::result::Result<String, Failure> {
+    async fn attempt(
+        &self,
+        body: &Value,
+        deltas: &DeltaSink,
+    ) -> std::result::Result<String, Failure> {
         let mut rb = self
             .http
             .post(&self.url)
@@ -82,7 +94,9 @@ impl OpenAi {
         if !tail.is_empty() {
             let _ = deltas.send(tail);
         }
-        state.finish().map_err(|e| Failure::fatal(e).no_retry_if(streamed))
+        state
+            .finish()
+            .map_err(|e| Failure::fatal(e).no_retry_if(streamed))
     }
 }
 
@@ -111,7 +125,9 @@ impl Translator for OpenAi {
 pub(crate) fn endpoint_url(base: &str) -> String {
     let base = base.trim();
     let with_version = match reqwest::Url::parse(base) {
-        Ok(u) if u.path() == "/" || u.path().is_empty() => format!("{}/v1", base.trim_end_matches('/')),
+        Ok(u) if u.path() == "/" || u.path().is_empty() => {
+            format!("{}/v1", base.trim_end_matches('/'))
+        }
         _ => base.to_string(),
     };
     join_endpoint(&with_version, "/chat/completions")
@@ -123,7 +139,13 @@ fn is_reasoning_model(model: &str) -> bool {
     ["o1", "o3", "o4", "gpt-5"].iter().any(|p| m.starts_with(p))
 }
 
-pub(crate) fn request_body(model: &str, system: &str, user: &str, source_text: &str, official: bool) -> Value {
+pub(crate) fn request_body(
+    model: &str,
+    system: &str,
+    user: &str,
+    source_text: &str,
+    official: bool,
+) -> Value {
     let reasoning = official && is_reasoning_model(model);
     let max = prompt::max_output_tokens(source_text, if reasoning { 4096 } else { 0 });
     let mut body = json!({
@@ -155,7 +177,9 @@ pub(crate) enum Chunk {
 }
 
 /// Parse the `data:` payload of one streaming event.
-pub(crate) fn parse_chunk(data: &str) -> std::result::Result<(Chunk, Option<String>), TranslateError> {
+pub(crate) fn parse_chunk(
+    data: &str,
+) -> std::result::Result<(Chunk, Option<String>), TranslateError> {
     let data = data.trim();
     if data == "[DONE]" {
         return Ok((Chunk::Done, None));
@@ -175,14 +199,20 @@ pub(crate) fn parse_chunk(data: &str) -> std::result::Result<(Chunk, Option<Stri
         .and_then(|c| c.pointer("/delta/content"))
         .and_then(Value::as_str)
         .filter(|t| !t.is_empty());
-    Ok((text.map_or(Chunk::Skip, |t| Chunk::Text(t.to_string())), finish))
+    Ok((
+        text.map_or(Chunk::Skip, |t| Chunk::Text(t.to_string())),
+        finish,
+    ))
 }
 
 /// Map an error object (`{"error": {...}}`), which can arrive as an HTTP body or mid-stream.
 fn api_error(v: &Value) -> TranslateError {
     let code = v.pointer("/error/code");
     let status = match code {
-        Some(Value::Number(n)) => n.as_u64().and_then(|n| u16::try_from(n).ok()).unwrap_or(500),
+        Some(Value::Number(n)) => n
+            .as_u64()
+            .and_then(|n| u16::try_from(n).ok())
+            .unwrap_or(500),
         Some(Value::String(s)) => match s.as_str() {
             "invalid_api_key" | "invalid_authentication" => 401,
             "rate_limit_exceeded" | "insufficient_quota" => 429,
@@ -238,7 +268,9 @@ impl StreamState {
                     message: "The provider's content filter blocked this text".into(),
                 })
             }
-            Some("length") => log::warn!("openai: the translation hit the token limit and may be cut short"),
+            Some("length") => {
+                log::warn!("openai: the translation hit the token limit and may be cut short")
+            }
             _ => {}
         }
         let text = self.text.trim().to_string();
@@ -255,13 +287,18 @@ pub(crate) fn parse_completion_json(body: &str) -> std::result::Result<String, T
     if v.get("error").is_some_and(|e| !e.is_null()) {
         return Err(api_error(&v));
     }
-    if v.pointer("/choices/0/finish_reason").and_then(Value::as_str) == Some("content_filter") {
+    if v.pointer("/choices/0/finish_reason")
+        .and_then(Value::as_str)
+        == Some("content_filter")
+    {
         return Err(TranslateError::Service {
             status: 200,
             message: "The provider's content filter blocked this text".into(),
         });
     }
-    let content = v.pointer("/choices/0/message/content").ok_or_else(|| parse_err("the response has no message"))?;
+    let content = v
+        .pointer("/choices/0/message/content")
+        .ok_or_else(|| parse_err("the response has no message"))?;
     let raw: String = match content {
         Value::String(s) => s.clone(),
         // Some servers return content parts.
@@ -394,7 +431,10 @@ mod tests {
     use super::*;
 
     fn ev(data: &str) -> SseEvent {
-        SseEvent { event: None, data: data.to_string() }
+        SseEvent {
+            event: None,
+            data: data.to_string(),
+        }
     }
 
     fn run_stream(raw: &str) -> (std::result::Result<String, TranslateError>, Vec<String>) {
@@ -474,26 +514,40 @@ data: {\"error\":{\"code\":502,\"message\":\"Provider returned error\"}}
 ";
         let (res, deltas) = run_stream(raw);
         assert_eq!(deltas, vec!["Hel"]);
-        assert!(matches!(res, Err(TranslateError::Service { status: 502, ref message }) if message == "The service is unavailable"));
+        assert!(
+            matches!(res, Err(TranslateError::Service { status: 502, ref message }) if message == "The service is unavailable")
+        );
     }
 
     #[test]
     fn error_codes_map_to_statuses() {
-        let e = |code: Value, msg: &str| api_error(&json!({"error": {"code": code, "message": msg, "type": "t"}}));
-        assert!(matches!(e(json!("invalid_api_key"), "Incorrect API key provided: sk-xxx"),
-            TranslateError::Service { status: 401, ref message } if message == "Invalid API key"));
+        let e = |code: Value, msg: &str| {
+            api_error(&json!({"error": {"code": code, "message": msg, "type": "t"}}))
+        };
+        assert!(
+            matches!(e(json!("invalid_api_key"), "Incorrect API key provided: sk-xxx"),
+            TranslateError::Service { status: 401, ref message } if message == "Invalid API key")
+        );
         assert!(matches!(e(json!("rate_limit_exceeded"), "slow down"),
             TranslateError::Service { status: 429, ref message } if message == "Rate limited"));
-        assert!(matches!(e(json!("insufficient_quota"), "You exceeded your current quota"),
-            TranslateError::Service { status: 429, ref message } if message == "Quota exceeded"));
-        assert!(matches!(e(json!(null), "boom"), TranslateError::Service { status: 500, .. }));
+        assert!(
+            matches!(e(json!("insufficient_quota"), "You exceeded your current quota"),
+            TranslateError::Service { status: 429, ref message } if message == "Quota exceeded")
+        );
+        assert!(matches!(
+            e(json!(null), "boom"),
+            TranslateError::Service { status: 500, .. }
+        ));
     }
 
     #[test]
     fn content_filter_is_reported() {
         let raw = "data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"content_filter\"}]}\n\ndata: [DONE]\n\n";
         let (res, _) = run_stream(raw);
-        assert!(matches!(res, Err(TranslateError::Service { status: 200, .. })));
+        assert!(matches!(
+            res,
+            Err(TranslateError::Service { status: 200, .. })
+        ));
     }
 
     #[test]
@@ -506,7 +560,10 @@ data: {\"error\":{\"code\":502,\"message\":\"Provider returned error\"}}
     fn keepalive_junk_is_skipped() {
         let mut s = StreamState::default();
         assert!(matches!(s.on_event(&ev("")), Ok(Step::Continue)));
-        assert!(matches!(s.on_event(&ev("{\"choices\":[]}")), Ok(Step::Continue)));
+        assert!(matches!(
+            s.on_event(&ev("{\"choices\":[]}")),
+            Ok(Step::Continue)
+        ));
         assert!(matches!(s.on_event(&ev("PROCESSING")), Ok(Step::Continue)));
     }
 
@@ -532,13 +589,22 @@ data: [DONE]
     #[test]
     fn plain_json_completion_is_parsed() {
         let body = r#"{"id":"c","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"Hola mundo"},"finish_reason":"stop"}],"usage":{"total_tokens":9}}"#;
-        assert_eq!(parse_completion_json(body).ok().as_deref(), Some("Hola mundo"));
+        assert_eq!(
+            parse_completion_json(body).ok().as_deref(),
+            Some("Hola mundo")
+        );
         let parts = r#"{"choices":[{"message":{"content":[{"type":"text","text":"A"},{"type":"text","text":"B"}]}}]}"#;
         assert_eq!(parse_completion_json(parts).ok().as_deref(), Some("AB"));
         let think = r#"{"choices":[{"message":{"content":"<think>x</think>\n\nHola"}}]}"#;
         assert_eq!(parse_completion_json(think).ok().as_deref(), Some("Hola"));
-        assert!(matches!(parse_completion_json("oops"), Err(TranslateError::Parse(_))));
-        assert!(matches!(parse_completion_json(r#"{"choices":[]}"#), Err(TranslateError::Parse(_))));
+        assert!(matches!(
+            parse_completion_json("oops"),
+            Err(TranslateError::Parse(_))
+        ));
+        assert!(matches!(
+            parse_completion_json(r#"{"choices":[]}"#),
+            Err(TranslateError::Parse(_))
+        ));
         assert!(matches!(
             parse_completion_json(r#"{"error":{"message":"bad","code":"invalid_api_key"}}"#),
             Err(TranslateError::Service { status: 401, .. })
@@ -560,7 +626,10 @@ data: [DONE]
     #[test]
     fn think_filter_passes_normal_text_through() {
         assert_eq!(filter_all(&["Hello ", "world"]), "Hello world");
-        assert_eq!(filter_all(&["  leading space kept"]), "  leading space kept");
+        assert_eq!(
+            filter_all(&["  leading space kept"]),
+            "  leading space kept"
+        );
         // A tag later in the text is the translation's business.
         assert_eq!(filter_all(&["use the <think> tag"]), "use the <think> tag");
         assert_eq!(filter_all(&["<thanks> a lot"]), "<thanks> a lot");
@@ -575,7 +644,11 @@ data: [DONE]
             if !full.is_char_boundary(i) {
                 continue;
             }
-            assert_eq!(filter_all(&[&full[..i], &full[i..]]), "Bonjour le monde", "split at {i}");
+            assert_eq!(
+                filter_all(&[&full[..i], &full[i..]]),
+                "Bonjour le monde",
+                "split at {i}"
+            );
         }
         let bytes: Vec<String> = full.chars().map(|c| c.to_string()).collect();
         let parts: Vec<&str> = bytes.iter().map(String::as_str).collect();
@@ -607,7 +680,10 @@ data: [DONE]
         assert_eq!(b["temperature"], 0);
         assert_eq!(b["max_completion_tokens"], 256 + 6);
         assert!(b.get("max_tokens").is_none());
-        assert_eq!(b["messages"][0], json!({"role": "system", "content": "SYS"}));
+        assert_eq!(
+            b["messages"][0],
+            json!({"role": "system", "content": "SYS"})
+        );
         assert_eq!(b["messages"][1], json!({"role": "user", "content": "USR"}));
     }
 
@@ -634,29 +710,55 @@ data: [DONE]
 
     #[test]
     fn endpoint_urls() {
-        assert_eq!(endpoint_url("https://api.openai.com/v1"), "https://api.openai.com/v1/chat/completions");
-        assert_eq!(endpoint_url("https://api.openai.com/v1/"), "https://api.openai.com/v1/chat/completions");
-        assert_eq!(endpoint_url("http://localhost:11434"), "http://localhost:11434/v1/chat/completions");
-        assert_eq!(endpoint_url("http://localhost:11434/"), "http://localhost:11434/v1/chat/completions");
-        assert_eq!(endpoint_url("https://openrouter.ai/api/v1"), "https://openrouter.ai/api/v1/chat/completions");
-        assert_eq!(endpoint_url("https://api.deepseek.com"), "https://api.deepseek.com/v1/chat/completions");
-        assert_eq!(endpoint_url("https://h/v1/chat/completions"), "https://h/v1/chat/completions");
+        assert_eq!(
+            endpoint_url("https://api.openai.com/v1"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("https://api.openai.com/v1/"),
+            "https://api.openai.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("http://localhost:11434"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("http://localhost:11434/"),
+            "http://localhost:11434/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("https://openrouter.ai/api/v1"),
+            "https://openrouter.ai/api/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("https://api.deepseek.com"),
+            "https://api.deepseek.com/v1/chat/completions"
+        );
+        assert_eq!(
+            endpoint_url("https://h/v1/chat/completions"),
+            "https://h/v1/chat/completions"
+        );
     }
 
     #[test]
     fn key_is_required_only_for_openai_itself() {
         let http = reqwest::Client::new();
         let mut cfg = crate::default_engines().remove(3);
-        assert!(matches!(OpenAi::new("o".into(), "O".into(), &cfg, http.clone()), Err(TranslateError::Config(_))));
+        assert!(matches!(
+            OpenAi::new("o".into(), "O".into(), &cfg, http.clone()),
+            Err(TranslateError::Config(_))
+        ));
         cfg.base_url = Some("https://api.openai.com/v1".into());
         assert!(OpenAi::new("o".into(), "O".into(), &cfg, http.clone()).is_err());
         cfg.base_url = Some("http://localhost:11434/v1".into());
-        let o = OpenAi::new("o".into(), "O".into(), &cfg, http.clone()).ok().expect("Ollama needs no key");
+        let o = OpenAi::new("o".into(), "O".into(), &cfg, http.clone())
+            .unwrap_or_else(|e| panic!("Ollama needs no key: {e}"));
         assert!(!o.official);
         assert_eq!(o.model, "gpt-4.1-mini");
         cfg.base_url = None;
         cfg.api_key = Some("sk-x".into());
-        let o = OpenAi::new("o".into(), "O".into(), &cfg, http).ok().expect("builds");
+        let o = OpenAi::new("o".into(), "O".into(), &cfg, http)
+            .unwrap_or_else(|e| panic!("builds: {e}"));
         assert!(o.official);
         assert_eq!(o.url, "https://api.openai.com/v1/chat/completions");
     }

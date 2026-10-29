@@ -35,7 +35,9 @@ impl Youdao {
             .ok_or_else(|| TranslateError::Config("The Youdao app ID is not set".into()))?;
         let app_secret = non_empty(cfg.api_secret.as_deref())
             .ok_or_else(|| TranslateError::Config("The Youdao app secret is not set".into()))?;
-        let base = non_empty(cfg.base_url.as_deref()).unwrap_or(DEFAULT_BASE).trim_end_matches('/');
+        let base = non_empty(cfg.base_url.as_deref())
+            .unwrap_or(DEFAULT_BASE)
+            .trim_end_matches('/');
         Ok(Youdao {
             app_key: app_key.to_string(),
             app_secret: app_secret.to_string(),
@@ -123,7 +125,11 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
         .get("translation")
         .and_then(Value::as_array)
         .ok_or_else(|| parse_err("the response has no translation"))?;
-    let text = parts.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("\n");
+    let text = parts
+        .iter()
+        .filter_map(Value::as_str)
+        .collect::<Vec<_>>()
+        .join("\n");
     if text.is_empty() {
         return Err(parse_err("the translation is empty"));
     }
@@ -140,16 +146,24 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
 /// Youdao's error codes, as an (HTTP-like status, message) pair.
 fn error_for_code(code: &str) -> (u16, String) {
     let (status, msg): (u16, &str) = match code {
-        "101" | "104" | "105" | "106" | "107" | "109" | "113" => (400, "The request was rejected as malformed"),
+        "101" | "104" | "105" | "106" | "107" | "109" | "113" => {
+            (400, "The request was rejected as malformed")
+        }
         "102" => (400, "Youdao does not support this language"),
         "103" => (413, "The text is too long"),
         "108" => (401, "Invalid app ID"),
-        "110" | "112" => (403, "The app has no translation service enabled in the Youdao console"),
+        "110" | "112" => (
+            403,
+            "The app has no translation service enabled in the Youdao console",
+        ),
         "111" => (401, "The Youdao developer account is not valid"),
         "201" | "202" => (401, "Signature check failed (check the app secret)"),
         "203" => (403, "This IP address is not allowed"),
         "205" => (403, "The app's platform does not match the request"),
-        "206" => (400, "The request time is not valid (check the system clock)"),
+        "206" => (
+            400,
+            "The request time is not valid (check the system clock)",
+        ),
         "207" => (400, "The request was a repeat"),
         "301" | "302" | "303" | "304" => (500, "Youdao failed to translate"),
         "401" | "402" => (402, "Quota exceeded (out of balance)"),
@@ -175,7 +189,10 @@ mod tests {
     #[test]
     fn truncation_keeps_head_length_and_tail() {
         assert_eq!(truncate("123456789012345678901"), "1234567890212345678901"); // 21 chars
-        assert_eq!(truncate("abcdefghijklmnopqrstuvwxyz"), "abcdefghij26qrstuvwxyz");
+        assert_eq!(
+            truncate("abcdefghijklmnopqrstuvwxyz"),
+            "abcdefghij26qrstuvwxyz"
+        );
     }
 
     #[test]
@@ -183,7 +200,10 @@ mod tests {
         let q = "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子"; // 21 characters, 63 bytes
         assert_eq!(truncate(q), "一二三四五六七八九十21乙丙丁戊己庚辛壬癸子");
         // 20 CJK characters are 60 bytes but still count as short.
-        assert_eq!(truncate("一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"), "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸");
+        assert_eq!(
+            truncate("一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"),
+            "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸"
+        );
     }
 
     #[test]
@@ -199,7 +219,13 @@ mod tests {
     fn signature_of_long_text_uses_the_truncated_input() {
         // sha256("appKey123abcdefghij26qrstuvwxyzsalt421700000000secret456")
         assert_eq!(
-            sign("appKey123", "abcdefghijklmnopqrstuvwxyz", "salt42", "1700000000", "secret456"),
+            sign(
+                "appKey123",
+                "abcdefghijklmnopqrstuvwxyz",
+                "salt42",
+                "1700000000",
+                "secret456"
+            ),
             "867267ecf50b1b4f36ff498b4231c98752c50389f4e00dc6cd3710af2e1950c8"
         );
     }
@@ -208,17 +234,35 @@ mod tests {
     fn signature_of_cjk_text_and_the_20_21_boundary() {
         // sha256("appKey123一二三四五六七八九十21乙丙丁戊己庚辛壬癸子71700000001s3cr3t")
         assert_eq!(
-            sign("appKey123", "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子", "7", "1700000001", "s3cr3t"),
+            sign(
+                "appKey123",
+                "一二三四五六七八九十甲乙丙丁戊己庚辛壬癸子",
+                "7",
+                "1700000001",
+                "s3cr3t"
+            ),
             "ef0c52d38c15027c399b59d2d629a218b10655e7e468708aac48d87f9b484928"
         );
         // sha256("appKey12312345678901234567890salt421700000000secret456")
         assert_eq!(
-            sign("appKey123", "12345678901234567890", "salt42", "1700000000", "secret456"),
+            sign(
+                "appKey123",
+                "12345678901234567890",
+                "salt42",
+                "1700000000",
+                "secret456"
+            ),
             "d64725c44a04615c3ce38fcc48cbae4c77a73355318981dd3b9a6b6adbec3151"
         );
         // sha256("appKey1231234567890212345678901salt421700000000secret456")
         assert_eq!(
-            sign("appKey123", "123456789012345678901", "salt42", "1700000000", "secret456"),
+            sign(
+                "appKey123",
+                "123456789012345678901",
+                "salt42",
+                "1700000000",
+                "secret456"
+            ),
             "c18cc5983ebdf00f21e59639fb5a1fcba12016960b63ad97a429aede6c327970"
         );
     }
@@ -248,7 +292,10 @@ mod tests {
         assert_eq!(err("108"), (401, "Invalid app ID".to_string()));
         assert_eq!(err("202").0, 401);
         assert!(err("202").1.contains("app secret"));
-        assert_eq!(err("401"), (402, "Quota exceeded (out of balance)".to_string()));
+        assert_eq!(
+            err("401"),
+            (402, "Quota exceeded (out of balance)".to_string())
+        );
         assert_eq!(err("411"), (429, "Rate limited".to_string()));
         assert_eq!(err("103").0, 413);
         assert_eq!(err("9999"), (500, "Youdao error 9999".to_string()));
@@ -261,8 +308,17 @@ mod tests {
 
     #[test]
     fn unexpected_bodies_are_parse_errors() {
-        for body in ["", "{}", "<html>", r#"{"errorCode":"0"}"#, r#"{"errorCode":"0","translation":[]}"#] {
-            assert!(matches!(parse_response(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "{}",
+            "<html>",
+            r#"{"errorCode":"0"}"#,
+            r#"{"errorCode":"0","translation":[]}"#,
+        ] {
+            assert!(
+                matches!(parse_response(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 
@@ -270,13 +326,27 @@ mod tests {
     fn construction_needs_both_credentials() {
         let http = reqwest::Client::new();
         let mut cfg = crate::default_engines().remove(5);
-        assert!(matches!(Youdao::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("app ID")));
+        assert!(
+            matches!(Youdao::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("app ID"))
+        );
         cfg.api_key = Some("k".into());
-        assert!(matches!(Youdao::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("secret")));
+        assert!(
+            matches!(Youdao::new(&cfg, http.clone()), Err(TranslateError::Config(m)) if m.contains("secret"))
+        );
         cfg.api_secret = Some("s".into());
-        assert_eq!(Youdao::new(&cfg, http.clone()).ok().expect("builds").url, "https://openapi.youdao.com/api");
+        assert_eq!(
+            Youdao::new(&cfg, http.clone())
+                .unwrap_or_else(|e| panic!("builds: {e}"))
+                .url,
+            "https://openapi.youdao.com/api"
+        );
         cfg.base_url = Some("http://127.0.0.1:1/".into());
-        assert_eq!(Youdao::new(&cfg, http).ok().expect("builds").url, "http://127.0.0.1:1/api");
+        assert_eq!(
+            Youdao::new(&cfg, http)
+                .unwrap_or_else(|e| panic!("builds: {e}"))
+                .url,
+            "http://127.0.0.1:1/api"
+        );
     }
 
     #[test]
@@ -285,7 +355,7 @@ mod tests {
         let mut cfg = crate::default_engines().remove(5);
         cfg.api_key = Some("k".into());
         cfg.api_secret = Some("s".into());
-        let y = Youdao::new(&cfg, http).ok().expect("builds");
+        let y = Youdao::new(&cfg, http).unwrap_or_else(|e| panic!("builds: {e}"));
         assert!(y.check_len(&"a".repeat(5000)).is_ok());
         assert!(matches!(
             y.check_len(&"a".repeat(5001)),

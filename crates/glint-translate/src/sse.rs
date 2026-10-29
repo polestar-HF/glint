@@ -137,7 +137,10 @@ mod tests {
     }
 
     fn ev(event: Option<&str>, data: &str) -> SseEvent {
-        SseEvent { event: event.map(str::to_owned), data: data.to_owned() }
+        SseEvent {
+            event: event.map(str::to_owned),
+            data: data.to_owned(),
+        }
     }
 
     #[test]
@@ -160,7 +163,8 @@ mod tests {
 
     #[test]
     fn comments_unknown_fields_and_empty_events_are_ignored() {
-        let got = parse_all(&[b": keep-alive\nid: 7\nretry: 100\n\nevent: only-name\n\ndata: ok\n\n"]);
+        let got =
+            parse_all(&[b": keep-alive\nid: 7\nretry: 100\n\nevent: only-name\n\ndata: ok\n\n"]);
         assert_eq!(got, vec![ev(None, "ok")]);
     }
 
@@ -205,7 +209,10 @@ mod tests {
     fn expected_sample() -> Vec<SseEvent> {
         vec![
             ev(Some("message_start"), "{\"type\":\"message_start\"}"),
-            ev(Some("content_block_delta"), "{\"delta\":{\"text\":\"你好，世界\"}}"),
+            ev(
+                Some("content_block_delta"),
+                "{\"delta\":{\"text\":\"你好，世界\"}}",
+            ),
             ev(None, "line one\nline two"),
             ev(None, "tail"),
         ]

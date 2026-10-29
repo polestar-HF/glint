@@ -1,8 +1,8 @@
 # Building Glint
 
 Glint ships as a Windows x64 NSIS installer and a portable zip. Both are built by
-GitHub Actions; this page covers local development, the model download, releases and
-expected sizes.
+GitHub Actions; this page covers local development, the model and ONNX Runtime downloads,
+releases and expected sizes.
 
 ## Local Windows setup
 
@@ -12,12 +12,13 @@ expected sizes.
 | MSVC | VS 2022 Build Tools | workload "Desktop development with C++" (MSVC v143 + Windows SDK) |
 | Node.js | 22 LTS | npm comes with it |
 | WebView2 Runtime | any current | preinstalled on Windows 11 and up-to-date Windows 10; otherwise install the Evergreen runtime from Microsoft |
-| Python | 3.8+ with pip | only used by the model download script |
+| Python | 3.8+ with pip | only used by the model / ONNX Runtime download scripts |
 | Tauri CLI | 2.12.x | `cargo install tauri-cli --version "^2.12" --locked`, or prefix commands with `npx @tauri-apps/cli@2.12.4` instead of `cargo tauri` |
 
 ```powershell
 git clone <repo> glint; cd glint
-powershell -ExecutionPolicy Bypass -File scripts/fetch-models.ps1   # models, once
+powershell -ExecutionPolicy Bypass -File scripts/fetch-models.ps1    # OCR models, once
+powershell -ExecutionPolicy Bypass -File scripts/fetch-runtime.ps1   # onnxruntime.dll, once
 npm ci --prefix ui             # UI dependencies
 cargo tauri dev                # Vite dev server + app, from the repo root
 ```
@@ -28,7 +29,8 @@ cargo tauri dev                # Vite dev server + app, from the repo root
 
 Order matters for any cargo command on the `glint` crate (`cargo check`, `clippy`, `test`):
 
-1. Models must exist: `tauri-build` copies `bundle.resources` and fails on a missing glob.
+1. Models and `onnxruntime.dll` must exist: `tauri-build` copies `bundle.resources` and fails on a
+   missing file or glob.
 2. `ui/dist` must exist: the crate embeds it at compile time. Run `npm run build` in `ui/` first.
 
 ## Models
@@ -39,7 +41,7 @@ PP-OCRv6 small detection and recognition models into `src-tauri/resources/models
 
 - **Source:** the PyPI wheel `rapidocr==3.10.0`, fetched with `pip download --require-hashes`;
   only the two `.onnx` members are extracted. PyPI is reachable from GitHub runners and from the
-  restricted dev containers; HuggingFace and `cdn.pyke.io` are not always.
+  restricted dev containers; HuggingFace is not always.
 - **Verified:** the wheel and each model are checked against pinned SHA-256 values.
 - **Idempotent:** if the files are present and correct, nothing is downloaded. `-Force` / `--force`
   re-downloads, `-Check` / `--check` only verifies (exit 1 on mismatch, no network).
@@ -56,14 +58,36 @@ PP-OCRv6 small detection and recognition models into `src-tauri/resources/models
 | `dict.txt` (from `rec.onnx`, optional) | `f7aa897ca828a4c7c9e2739c30f9161a33306d532f020bcdb91dcfb664a5507e` | 74,946 B |
 
 To change models: edit the version, member paths and hashes in **both** scripts (`ci.yml` fails if
-they disagree). CI caches the folder under a key derived from the two scripts, so the cache refreshes
+they disagree). CI caches the folder under a key derived from the scripts, so the cache refreshes
 automatically.
+
+## ONNX Runtime
+
+glint-ocr uses the `ort-dynamic` feature: `ort` loads `onnxruntime.dll` at run time (no ONNX Runtime
+is linked into `glint.exe`, and nothing is downloaded by the `ort` build script). We ship the stock CPU
+build, no DirectML.
+
+`scripts/fetch-runtime.ps1` / `scripts/fetch-runtime.sh` download the Windows x64 wheel
+`onnxruntime==1.31.1` (`pip download --platform win_amd64 --python-version 3.13`, works from any OS),
+verify it, and extract `onnxruntime/capi/onnxruntime.dll` to `src-tauri/resources/onnxruntime.dll`
+(git-ignored). Same flags and idempotence as the model script. `tauri.conf.json` maps the file next to
+the exe (`"resources/onnxruntime.dll": "onnxruntime.dll"`), so it lands beside `glint.exe` in the
+installer and in the portable zip.
+
+| File | SHA-256 | Size |
+|---|---|---|
+| wheel `onnxruntime-1.31.1-cp313-cp313-win_amd64.whl` | `0558f29d5f6ac09957390c9c5495931485ee8ae7f0ce781ccee86a0ae5c2348b` | 14.9 MB |
+| `onnxruntime.dll` | `68d0d5f502be4509e2a16f932627a95137d748b2fae519027f80125c0b1f550b` | 19,288,888 B |
+
+CI on Windows sets `ORT_DYLIB_PATH` to this file for `cargo test`. On Linux, CI extracts
+`libonnxruntime.so.1.31.1` from the Linux wheel the same way (pinned in `ci.yml`). Keep both on the
+same ONNX Runtime version, matching the `ort` crate (1.31).
 
 ## CI
 
 | Workflow | Trigger | What it does |
 |---|---|---|
-| `ci.yml` | push to any branch, PR, manual | `rust-linux`: `cargo fmt --check`, clippy and tests for `glint-ocr` (`ort-dynamic`), `glint-translate`, `glint-overlay`. `windows`: calls `windows-build.yml`. |
+| `ci.yml` | push to any branch, PR, manual | `rust-linux`: `cargo fmt --check`, clippy and tests for `glint-ocr` (default features), `glint-translate`, `glint-overlay`. `windows`: calls `windows-build.yml`. |
 | `windows-build.yml` | reusable | Clippy (`--workspace`, `-D warnings`) and tests on Windows, `tauri build --bundles nsis`, portable zip, artifacts `glint-installer` and `glint-portable`, size table in the job summary. |
 | `release.yml` | tag `v*` | Checks tag = `Cargo.toml` = `tauri.conf.json` version, runs `windows-build.yml`, creates a **draft** GitHub Release with installer, zip and `SHA256SUMS.txt`. |
 
@@ -93,18 +117,22 @@ artifact and warns, without failing, when the installer is over budget.
 |---|---|
 | Models, unpacked | 29.7 MiB (det 9.5, rec 20.3) |
 | Models, LZMA/deflate (measured) | about 24.8 MiB / 25.3 MiB; ONNX weights barely compress |
-| `glint.exe` | 4-8 MiB, plus 12-20 MiB if ONNX Runtime is linked statically (estimates) |
-| NSIS installer | about 40-50 MiB (estimate), WebView2 is downloaded, not embedded |
-| Portable zip | about the same as the installer |
+| `onnxruntime.dll` | 18.4 MiB unpacked, about 4.6 MiB LZMA (measured) |
+| `glint.exe` | 4-8 MiB (estimate); ONNX Runtime is not linked in |
+| NSIS installer | about 35-40 MiB (estimate), WebView2 is downloaded, not embedded |
+| Portable zip | about the same, a little larger (deflate) |
 
 ## Troubleshooting
 
 - `frontendDist ... doesn't exist` or a missing-resource error: see the order of steps above.
-- ONNX Runtime link errors after a cache restore: the `ort.pyke.io` download folder must be cached
-  together with `target/` (it is, via `cache-directories` in `windows-build.yml`).
+- ONNX Runtime fails to load: `onnxruntime.dll` must sit next to `glint.exe` (the `tauri.conf.json`
+  resource entry), or `ORT_DYLIB_PATH` must point at it (tests, ad-hoc runs). Load it by full path:
+  recent Windows builds ship an older, incompatible `onnxruntime.dll` in `System32`.
+- The portable-zip step fails with "Required file 'onnxruntime.dll' not found": the resource entry in
+  `tauri.conf.json` is missing or `fetch-runtime` did not run.
 - `cargo test` on Windows dying with `0xc0000139` (STATUS_ENTRYPOINT_NOT_FOUND) in the `glint` crate:
   the test binary lacks the Common Controls manifest. Exclude it with
   `TEST_SCOPE: "--workspace --exclude glint"` or embed the manifest for tests.
 - Linux container: `cargo check --target x86_64-pc-windows-msvc -p <crate>` type-checks the Windows
-  code; `ort-dynamic` tests need `ORT_DYLIB_PATH` pointing at a `libonnxruntime.so` (see the
+  code; glint-ocr tests need `ORT_DYLIB_PATH` pointing at a `libonnxruntime.so` (see the
   "Fetch ONNX Runtime" step in `ci.yml`).

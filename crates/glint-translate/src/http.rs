@@ -55,11 +55,19 @@ pub(crate) struct Failure {
 
 impl Failure {
     pub fn fatal(err: TranslateError) -> Self {
-        Failure { err, retryable: false, retry_after: None }
+        Failure {
+            err,
+            retryable: false,
+            retry_after: None,
+        }
     }
 
     pub fn retry(err: TranslateError) -> Self {
-        Failure { err, retryable: true, retry_after: None }
+        Failure {
+            err,
+            retryable: true,
+            retry_after: None,
+        }
     }
 
     /// A retry is only allowed while nothing has been streamed to the caller.
@@ -73,8 +81,13 @@ impl Failure {
 
 impl From<TranslateError> for Failure {
     fn from(err: TranslateError) -> Self {
-        let retryable = matches!(&err, TranslateError::Service { status, .. } if is_retryable_status(*status));
-        Failure { err, retryable, retry_after: None }
+        let retryable =
+            matches!(&err, TranslateError::Service { status, .. } if is_retryable_status(*status));
+        Failure {
+            err,
+            retryable,
+            retry_after: None,
+        }
     }
 }
 
@@ -91,7 +104,11 @@ impl From<reqwest::Error> for Failure {
         } else {
             (format!("Request failed: {}", e.without_url()), false)
         };
-        Failure { err: TranslateError::Network(message), retryable, retry_after: None }
+        Failure {
+            err: TranslateError::Network(message),
+            retryable,
+            retry_after: None,
+        }
     }
 }
 
@@ -347,15 +364,34 @@ mod tests {
 
     #[test]
     fn statuses_map_to_short_messages() {
-        assert_eq!(msg(401, "{\"error\":{\"message\":\"bad key sk-123\"}}", Provider::OpenAi), "Invalid API key");
+        assert_eq!(
+            msg(
+                401,
+                "{\"error\":{\"message\":\"bad key sk-123\"}}",
+                Provider::OpenAi
+            ),
+            "Invalid API key"
+        );
         assert_eq!(msg(402, "", Provider::Generic), "Quota exceeded");
         assert_eq!(msg(429, "", Provider::Anthropic), "Rate limited");
         assert_eq!(msg(456, "", Provider::DeepL), "Quota exceeded");
-        assert_eq!(msg(403, "{\"message\":\"Forbidden\"}", Provider::DeepL), "Invalid API key");
+        assert_eq!(
+            msg(403, "{\"message\":\"Forbidden\"}", Provider::DeepL),
+            "Invalid API key"
+        );
         assert_eq!(msg(401, "", Provider::Bing), "Authentication failed");
-        assert_eq!(msg(500, "<html>boom</html>", Provider::Generic), "Server error");
-        assert_eq!(msg(503, "", Provider::Generic), "The service is unavailable");
-        assert_eq!(msg(529, "", Provider::Anthropic), "The service is overloaded");
+        assert_eq!(
+            msg(500, "<html>boom</html>", Provider::Generic),
+            "Server error"
+        );
+        assert_eq!(
+            msg(503, "", Provider::Generic),
+            "The service is unavailable"
+        );
+        assert_eq!(
+            msg(529, "", Provider::Anthropic),
+            "The service is overloaded"
+        );
         assert_eq!(msg(418, "", Provider::Generic), "Request failed");
     }
 
@@ -374,10 +410,15 @@ mod tests {
             msg(400, body, Provider::Anthropic),
             "Bad request: model: claude-nope is not a valid model"
         );
-        assert_eq!(msg(404, "{\"error\":\"model 'x' not found\"}", Provider::OpenAi),
-            "Not found (check the base URL and model name): model 'x' not found");
+        assert_eq!(
+            msg(404, "{\"error\":\"model 'x' not found\"}", Provider::OpenAi),
+            "Not found (check the base URL and model name): model 'x' not found"
+        );
         // An HTML error page is not shown.
-        assert_eq!(msg(400, "<html><body>Bad</body></html>", Provider::Generic), "Bad request");
+        assert_eq!(
+            msg(400, "<html><body>Bad</body></html>", Provider::Generic),
+            "Bad request"
+        );
         // A very long detail is cut.
         let long = format!("{{\"message\":\"{}\"}}", "x".repeat(500));
         let m = msg(400, &long, Provider::Generic);
@@ -387,11 +428,20 @@ mod tests {
 
     #[test]
     fn error_detail_shapes() {
-        assert_eq!(error_detail(r#"{"error":{"message":"a  b\nc"}}"#).as_deref(), Some("a b c"));
-        assert_eq!(error_detail(r#"{"error":"plain"}"#).as_deref(), Some("plain"));
+        assert_eq!(
+            error_detail(r#"{"error":{"message":"a  b\nc"}}"#).as_deref(),
+            Some("a b c")
+        );
+        assert_eq!(
+            error_detail(r#"{"error":"plain"}"#).as_deref(),
+            Some("plain")
+        );
         assert_eq!(error_detail(r#"{"message":"m"}"#).as_deref(), Some("m"));
         assert_eq!(error_detail(r#"{"detail":"d"}"#).as_deref(), Some("d"));
-        assert_eq!(error_detail(r#"{"error_msg":"UNAUTHORIZED USER"}"#).as_deref(), Some("UNAUTHORIZED USER"));
+        assert_eq!(
+            error_detail(r#"{"error_msg":"UNAUTHORIZED USER"}"#).as_deref(),
+            Some("UNAUTHORIZED USER")
+        );
         assert_eq!(error_detail("Not Found").as_deref(), Some("Not Found"));
         assert_eq!(error_detail(""), None);
         assert_eq!(error_detail("{\"weird\":1}"), None);
@@ -400,10 +450,24 @@ mod tests {
     #[test]
     fn retryable_statuses() {
         for s in [429, 500, 502, 503, 504, 529] {
-            assert!(Failure::from(TranslateError::Service { status: s, message: String::new() }).retryable, "{s}");
+            assert!(
+                Failure::from(TranslateError::Service {
+                    status: s,
+                    message: String::new()
+                })
+                .retryable,
+                "{s}"
+            );
         }
         for s in [400, 401, 402, 403, 404, 413, 456] {
-            assert!(!Failure::from(TranslateError::Service { status: s, message: String::new() }).retryable, "{s}");
+            assert!(
+                !Failure::from(TranslateError::Service {
+                    status: s,
+                    message: String::new()
+                })
+                .retryable,
+                "{s}"
+            );
         }
         assert!(!Failure::from(TranslateError::Parse("x".into())).retryable);
         assert!(!Failure::from(TranslateError::Config("x".into())).retryable);
@@ -414,7 +478,11 @@ mod tests {
         let f = Failure::retry(TranslateError::Network("x".into()));
         assert!(f.retryable);
         assert!(!f.no_retry_if(true).retryable);
-        assert!(Failure::retry(TranslateError::Network("x".into())).no_retry_if(false).retryable);
+        assert!(
+            Failure::retry(TranslateError::Network("x".into()))
+                .no_retry_if(false)
+                .retryable
+        );
     }
 
     #[tokio::test(start_paused = true)]
@@ -423,7 +491,12 @@ mod tests {
         let calls = AtomicU32::new(0);
         let out: Result<(), TranslateError> = retrying(|| {
             calls.fetch_add(1, Ordering::SeqCst);
-            async { Err(Failure::from(TranslateError::Service { status: 503, message: "x".into() })) }
+            async {
+                Err(Failure::from(TranslateError::Service {
+                    status: 503,
+                    message: "x".into(),
+                }))
+            }
         })
         .await;
         assert!(out.is_err());
@@ -446,7 +519,12 @@ mod tests {
         let calls = AtomicU32::new(0);
         let out: Result<(), TranslateError> = retrying(|| {
             calls.fetch_add(1, Ordering::SeqCst);
-            async { Err(Failure::from(TranslateError::Service { status: 401, message: "x".into() })) }
+            async {
+                Err(Failure::from(TranslateError::Service {
+                    status: 401,
+                    message: "x".into(),
+                }))
+            }
         })
         .await;
         assert!(out.is_err());
@@ -462,10 +540,23 @@ mod tests {
             "https://api.anthropic.com/v1/",
             "https://api.anthropic.com/v1/messages",
         ] {
-            assert_eq!(join_endpoint(base, "/v1/messages"), "https://api.anthropic.com/v1/messages", "{base}");
+            assert_eq!(
+                join_endpoint(base, "/v1/messages"),
+                "https://api.anthropic.com/v1/messages",
+                "{base}"
+            );
         }
-        assert_eq!(join_endpoint("https://h/openai/v1", "/chat/completions"), "https://h/openai/v1/chat/completions");
-        assert_eq!(join_endpoint("https://h/v1/chat/completions", "/chat/completions"), "https://h/v1/chat/completions");
-        assert_eq!(join_endpoint(" http://127.0.0.1:11434/v1/ ", "chat/completions"), "http://127.0.0.1:11434/v1/chat/completions");
+        assert_eq!(
+            join_endpoint("https://h/openai/v1", "/chat/completions"),
+            "https://h/openai/v1/chat/completions"
+        );
+        assert_eq!(
+            join_endpoint("https://h/v1/chat/completions", "/chat/completions"),
+            "https://h/v1/chat/completions"
+        );
+        assert_eq!(
+            join_endpoint(" http://127.0.0.1:11434/v1/ ", "chat/completions"),
+            "http://127.0.0.1:11434/v1/chat/completions"
+        );
     }
 }

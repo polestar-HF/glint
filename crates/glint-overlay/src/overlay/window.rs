@@ -12,18 +12,22 @@ use std::mem::size_of;
 use std::panic::{catch_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use windows::core::{w, PCWSTR};
+use windows::core::{w, BOOL, PCWSTR};
 use windows::Win32::Foundation::{
     GetLastError, ERROR_CLASS_ALREADY_EXISTS, HINSTANCE, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
-use windows::Win32::Graphics::Dwm::{DwmSetWindowAttribute, DWMWA_CLOAK};
+use windows::Win32::Graphics::Dwm::{
+    DwmSetWindowAttribute, DWMWA_BORDER_COLOR, DWMWA_CLOAK, DWMWA_COLOR_NONE, DWMWA_TRANSITIONS_FORCEDISABLED,
+    DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_DONOTROUND, DWMWINDOWATTRIBUTE,
+};
 use windows::Win32::Graphics::Gdi::{BeginPaint, EndPaint, InvalidateRect, UpdateWindow, PAINTSTRUCT};
 use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId};
 use windows::Win32::UI::Input::KeyboardAndMouse::{GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL};
 use windows::Win32::UI::WindowsAndMessaging::{
     BringWindowToTop, CreateWindowExW, DefWindowProcW, DestroyWindow, DispatchMessageW, GetCursorPos,
-    GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId, IsWindow, LoadCursorW, PostMessageW,
+    GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId, IsHungAppWindow, IsWindow, LoadCursorW,
+    PostMessageW,
     PostQuitMessage, RegisterClassExW, SetCursor, SetCursorPos, SetForegroundWindow, SetWindowPos, TranslateMessage,
     UnregisterClassW, HCURSOR, HTCLIENT, HWND_TOPMOST, IDC_CROSS, MSG, SC_KEYMENU, SWP_NOACTIVATE, SWP_SHOWWINDOW,
     WM_CAPTURECHANGED, WM_CLOSE, WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN,
@@ -519,6 +523,11 @@ impl WindowSet {
             }
             .map_err(|e| OverlayError::Window(format!("CreateWindowExW: {e}")))?;
             set.0.push(hwnd);
+            // Instant show/hide, and square corners with no Windows 11 border, so the
+            // window covers its monitor exactly. These fail harmlessly on older builds.
+            dwm_set(hwnd, DWMWA_TRANSITIONS_FORCEDISABLED, &BOOL::from(true));
+            dwm_set(hwnd, DWMWA_WINDOW_CORNER_PREFERENCE, &DWMWCP_DONOTROUND);
+            dwm_set(hwnd, DWMWA_BORDER_COLOR, &DWMWA_COLOR_NONE);
         }
         Ok(set)
     }
@@ -527,7 +536,7 @@ impl WindowSet {
     /// and fixes its rect if Windows adjusted it. Nothing is visible yet afterwards.
     fn show_and_paint(&self, monitors: &[Rect]) {
         for (&hwnd, m) in self.0.iter().zip(monitors) {
-            if !set_cloak(hwnd, true) {
+            if !dwm_set(hwnd, DWMWA_CLOAK, &BOOL::from(true)) {
                 log::debug!("DWM cloak unavailable; window may flash once");
             }
             place(hwnd, *m, SWP_SHOWWINDOW | SWP_NOACTIVATE);
@@ -552,7 +561,7 @@ impl WindowSet {
 
     fn uncloak(&self) {
         for &hwnd in &self.0 {
-            set_cloak(hwnd, false);
+            dwm_set(hwnd, DWMWA_CLOAK, &BOOL::from(false));
         }
     }
 }
@@ -575,18 +584,12 @@ fn place(hwnd: HWND, m: Rect, flags: windows::Win32::UI::WindowsAndMessaging::SE
     }
 }
 
-fn set_cloak(hwnd: HWND, cloak: bool) -> bool {
-    let value = windows::core::BOOL::from(cloak);
-    // SAFETY: DWMWA_CLOAK takes a BOOL; the pointer and size describe `value`.
-    unsafe {
-        DwmSetWindowAttribute(
-            hwnd,
-            DWMWA_CLOAK,
-            &value as *const windows::core::BOOL as *const std::ffi::c_void,
-            size_of::<windows::core::BOOL>() as u32,
-        )
-    }
-    .is_ok()
+/// Sets a DWM window attribute. `T` must be the attribute's documented value type
+/// (BOOL, a 32-bit enum or a COLORREF for the ones used here).
+fn dwm_set<T: Copy>(hwnd: HWND, attr: DWMWINDOWATTRIBUTE, value: &T) -> bool {
+    // SAFETY: the pointer and size describe `value`, which outlives the call; DWM
+    // copies it and rejects mismatched sizes with an error.
+    unsafe { DwmSetWindowAttribute(hwnd, attr, (value as *const T).cast(), size_of::<T>() as u32) }.is_ok()
 }
 
 fn module_instance() -> Result<HINSTANCE> {
@@ -611,7 +614,13 @@ fn force_foreground(hwnd: HWND) {
     unsafe {
         let me = GetCurrentThreadId();
         let fg = GetForegroundWindow();
-        let fg_thread = if fg.0.is_null() { 0 } else { GetWindowThreadProcessId(fg, None) };
+        // Attached input makes focus changes send messages to the other thread
+        // synchronously; never attach to a hung one or the overlay would hang with it.
+        let fg_thread = if fg.0.is_null() || IsHungAppWindow(fg).as_bool() {
+            0
+        } else {
+            GetWindowThreadProcessId(fg, None)
+        };
         let attached = fg_thread != 0 && fg_thread != me && AttachThreadInput(me, fg_thread, true).as_bool();
         let _ = BringWindowToTop(hwnd);
         let ok = SetForegroundWindow(hwnd).as_bool();

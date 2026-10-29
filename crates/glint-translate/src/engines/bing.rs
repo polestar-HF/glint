@@ -36,8 +36,14 @@ const AZURE_API_BASE: &str = "https://api.cognitive.microsofttranslator.com";
 const TOKEN_TTL: Duration = Duration::from_secs(8 * 60);
 
 enum Mode {
-    Edge { auth_url: String, token: tokio::sync::Mutex<Option<Token>> },
-    Azure { key: String, region: Option<String> },
+    Edge {
+        auth_url: String,
+        token: tokio::sync::Mutex<Option<Token>>,
+    },
+    Azure {
+        key: String,
+        region: Option<String>,
+    },
 }
 
 struct Token {
@@ -53,7 +59,8 @@ pub(crate) struct Bing {
 
 impl Bing {
     pub fn new(cfg: &EngineConfig, http: reqwest::Client) -> Self {
-        let custom_base = non_empty(cfg.base_url.as_deref()).map(|b| b.trim_end_matches('/').to_string());
+        let custom_base =
+            non_empty(cfg.base_url.as_deref()).map(|b| b.trim_end_matches('/').to_string());
         match non_empty(cfg.api_key.as_deref()) {
             Some(key) => Bing {
                 mode: Mode::Azure {
@@ -69,7 +76,10 @@ impl Bing {
                     None => EDGE_AUTH_URL.to_string(),
                 };
                 Bing {
-                    mode: Mode::Edge { auth_url, token: tokio::sync::Mutex::new(None) },
+                    mode: Mode::Edge {
+                        auth_url,
+                        token: tokio::sync::Mutex::new(None),
+                    },
                     base: custom_base.unwrap_or_else(|| EDGE_API_BASE.to_string()),
                     http,
                 }
@@ -78,7 +88,11 @@ impl Bing {
     }
 
     /// A valid Edge token, fetched if there is none or it is older than the TTL.
-    async fn edge_token(&self, auth_url: &str, cache: &tokio::sync::Mutex<Option<Token>>) -> std::result::Result<String, Failure> {
+    async fn edge_token(
+        &self,
+        auth_url: &str,
+        cache: &tokio::sync::Mutex<Option<Token>>,
+    ) -> std::result::Result<String, Failure> {
         // Holding the lock across the fetch means concurrent requests wait for one fetch
         // instead of each making their own.
         let mut slot = cache.lock().await;
@@ -90,7 +104,10 @@ impl Bing {
         let rb = self.http.get(auth_url).timeout(MT_TIMEOUT);
         let body = send(rb, Provider::Bing).await?.text().await?;
         let value = validate_token(&body)?;
-        *slot = Some(Token { value: value.clone(), fetched: Instant::now() });
+        *slot = Some(Token {
+            value: value.clone(),
+            fetched: Instant::now(),
+        });
         Ok(value)
     }
 }
@@ -128,7 +145,9 @@ impl Backend for Bing {
         match send(rb, Provider::Bing).await {
             Ok(resp) => Ok(parse_response(&resp.text().await?)?),
             Err(f) => {
-                if let (Mode::Edge { token, .. }, TranslateError::Service { status: 401, .. }) = (&self.mode, &f.err) {
+                if let (Mode::Edge { token, .. }, TranslateError::Service { status: 401, .. }) =
+                    (&self.mode, &f.err)
+                {
                     // The token expired early or was revoked: forget it, and let the retry
                     // fetch a new one.
                     *token.lock().await = None;
@@ -153,14 +172,19 @@ pub(crate) fn validate_token(body: &str) -> std::result::Result<String, Translat
 /// Parse `[{"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"..","to":".."}]}]`.
 pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, TranslateError> {
     let v: Value = serde_json::from_str(body).map_err(|_| parse_err("the response is not JSON"))?;
-    let first = v.get(0).ok_or_else(|| parse_err("the response has no translation"))?;
+    let first = v
+        .get(0)
+        .ok_or_else(|| parse_err("the response has no translation"))?;
     let text = first
         .pointer("/translations/0/text")
         .and_then(Value::as_str)
         .ok_or_else(|| parse_err("the response has no translated text"))?;
     Ok(MtOut {
         text: text.to_string(),
-        detected: first.pointer("/detectedLanguage/language").and_then(Value::as_str).map(str::to_owned),
+        detected: first
+            .pointer("/detectedLanguage/language")
+            .and_then(Value::as_str)
+            .map(str::to_owned),
     })
 }
 
@@ -185,16 +209,35 @@ mod tests {
 
     #[test]
     fn unexpected_bodies_are_parse_errors() {
-        for body in ["", "[]", "{}", r#"[{}]"#, r#"[{"translations":[]}]"#, r#"{"error":{"code":401000,"message":"x"}}"#, "<html>"] {
-            assert!(matches!(parse_response(body), Err(TranslateError::Parse(_))), "{body:?}");
+        for body in [
+            "",
+            "[]",
+            "{}",
+            r#"[{}]"#,
+            r#"[{"translations":[]}]"#,
+            r#"{"error":{"code":401000,"message":"x"}}"#,
+            "<html>",
+        ] {
+            assert!(
+                matches!(parse_response(body), Err(TranslateError::Parse(_))),
+                "{body:?}"
+            );
         }
     }
 
     #[test]
     fn token_validation() {
         let jwt = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImtleTEiLCJ0eXAiOiJKV1QifQ.eyJzdWIiOiJ4In0.c2ln";
-        assert_eq!(validate_token(&format!("{jwt}\n")).ok().as_deref(), Some(jwt));
-        for bad in ["", "short", "<html><body>Sign in to the network please</body></html>", "two words here are not a token ever"] {
+        assert_eq!(
+            validate_token(&format!("{jwt}\n")).ok().as_deref(),
+            Some(jwt)
+        );
+        for bad in [
+            "",
+            "short",
+            "<html><body>Sign in to the network please</body></html>",
+            "two words here are not a token ever",
+        ] {
             assert!(validate_token(bad).is_err(), "{bad:?}");
         }
     }
@@ -206,19 +249,25 @@ mod tests {
 
         let b = Bing::new(&cfg, http.clone());
         assert_eq!(b.base, "https://api-edge.cognitive.microsofttranslator.com");
-        assert!(matches!(&b.mode, Mode::Edge { auth_url, .. } if auth_url == "https://edge.microsoft.com/translate/auth"));
+        assert!(
+            matches!(&b.mode, Mode::Edge { auth_url, .. } if auth_url == "https://edge.microsoft.com/translate/auth")
+        );
 
         cfg.base_url = Some("http://127.0.0.1:9/".into());
         let b = Bing::new(&cfg, http.clone());
         assert_eq!(b.base, "http://127.0.0.1:9");
-        assert!(matches!(&b.mode, Mode::Edge { auth_url, .. } if auth_url == "http://127.0.0.1:9/translate/auth"));
+        assert!(
+            matches!(&b.mode, Mode::Edge { auth_url, .. } if auth_url == "http://127.0.0.1:9/translate/auth")
+        );
 
         cfg.base_url = None;
         cfg.api_key = Some("azure-key".into());
         cfg.api_secret = Some(" westeurope ".into());
         let b = Bing::new(&cfg, http.clone());
         assert_eq!(b.base, "https://api.cognitive.microsofttranslator.com");
-        assert!(matches!(&b.mode, Mode::Azure { key, region } if key == "azure-key" && region.as_deref() == Some("westeurope")));
+        assert!(
+            matches!(&b.mode, Mode::Azure { key, region } if key == "azure-key" && region.as_deref() == Some("westeurope"))
+        );
 
         cfg.api_secret = Some("".into());
         let b = Bing::new(&cfg, http);

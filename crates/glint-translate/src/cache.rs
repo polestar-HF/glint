@@ -107,7 +107,11 @@ impl Cache {
         while g.map.len() > g.capacity {
             // At most a few hundred entries, so a scan for the oldest is cheaper than
             // maintaining a linked list.
-            let oldest = g.map.iter().min_by_key(|(_, (_, used))| *used).map(|(k, _)| k.clone());
+            let oldest = g
+                .map
+                .iter()
+                .min_by_key(|(_, (_, used))| *used)
+                .map(|(k, _)| k.clone());
             match oldest {
                 Some(k) => {
                     g.map.remove(&k);
@@ -215,7 +219,10 @@ mod tests {
         assert!(c.get(&key("e", "1")).is_some());
         c.insert(key("e", "4"), "4".into());
         assert_eq!(c.len(), 3);
-        assert!(c.get(&key("e", "2")).is_none(), "2 should have been evicted");
+        assert!(
+            c.get(&key("e", "2")).is_none(),
+            "2 should have been evicted"
+        );
         for t in ["1", "3", "4"] {
             assert!(c.get(&key("e", t)).is_some(), "{t} should remain");
         }
@@ -240,14 +247,30 @@ mod tests {
         assert_ne!(base, CacheKey::new("e", "m2", "v", &req("hello")));
         assert_ne!(base, CacheKey::new("e", "m", "v2", &req("hello")));
         assert_ne!(base, CacheKey::new("e", "m", "v", &req("hello!")));
-        assert_ne!(base, CacheKey::new("e", "m", "v", &TranslateRequest::new("hello", "en", "zh-Hans")));
-        assert_ne!(base, CacheKey::new("e", "m", "v", &TranslateRequest::new("hello", "auto", "ja")));
+        assert_ne!(
+            base,
+            CacheKey::new(
+                "e",
+                "m",
+                "v",
+                &TranslateRequest::new("hello", "en", "zh-Hans")
+            )
+        );
+        assert_ne!(
+            base,
+            CacheKey::new("e", "m", "v", &TranslateRequest::new("hello", "auto", "ja"))
+        );
         let mut with_secondary = req("hello");
         with_secondary.secondary_lang = Some("en".into());
         assert_ne!(base, CacheKey::new("e", "m", "v", &with_secondary));
         // Language codes are compared case-insensitively.
         assert_eq!(
-            CacheKey::new("e", "m", "v", &TranslateRequest::new("hello", "AUTO", "ZH-HANS")),
+            CacheKey::new(
+                "e",
+                "m",
+                "v",
+                &TranslateRequest::new("hello", "AUTO", "ZH-HANS")
+            ),
             base
         );
     }
@@ -258,7 +281,10 @@ mod tests {
         a.secondary_lang = Some("a".into());
         let mut b = req("c");
         b.secondary_lang = Some("ab".into());
-        assert_ne!(CacheKey::new("e", "m", "v", &a), CacheKey::new("e", "m", "v", &b));
+        assert_ne!(
+            CacheKey::new("e", "m", "v", &a),
+            CacheKey::new("e", "m", "v", &b)
+        );
     }
 
     struct Counting {
@@ -295,14 +321,26 @@ mod tests {
     async fn wrapper_serves_repeats_from_cache_and_replays_one_delta() {
         let calls = Arc::new(AtomicUsize::new(0));
         let cache = Cache::default();
-        let t = cache.wrap(Box::new(Counting { calls: calls.clone(), fail: false }), &cfg());
+        let t = cache.wrap(
+            Box::new(Counting {
+                calls: calls.clone(),
+                fail: false,
+            }),
+            &cfg(),
+        );
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        assert_eq!(t.translate(&req("hi"), tx).await.ok().as_deref(), Some("T:hi"));
+        assert_eq!(
+            t.translate(&req("hi"), tx).await.ok().as_deref(),
+            Some("T:hi")
+        );
         assert_eq!(rx.recv().await.as_deref(), Some("T:hi"));
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        assert_eq!(t.translate(&req("hi"), tx).await.ok().as_deref(), Some("T:hi"));
+        assert_eq!(
+            t.translate(&req("hi"), tx).await.ok().as_deref(),
+            Some("T:hi")
+        );
         assert_eq!(rx.recv().await.as_deref(), Some("T:hi"));
         assert!(rx.recv().await.is_none(), "a hit sends exactly one delta");
         assert_eq!(calls.load(Ordering::SeqCst), 1);
@@ -319,12 +357,24 @@ mod tests {
     async fn clones_share_storage_and_failures_are_not_cached() {
         let calls = Arc::new(AtomicUsize::new(0));
         let cache = Cache::default();
-        let failing = cache.clone().wrap(Box::new(Counting { calls: calls.clone(), fail: true }), &cfg());
+        let failing = cache.clone().wrap(
+            Box::new(Counting {
+                calls: calls.clone(),
+                fail: true,
+            }),
+            &cfg(),
+        );
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(failing.translate(&req("hi"), tx).await.is_err());
         assert!(cache.is_empty());
 
-        let ok = cache.wrap(Box::new(Counting { calls: calls.clone(), fail: false }), &cfg());
+        let ok = cache.wrap(
+            Box::new(Counting {
+                calls: calls.clone(),
+                fail: false,
+            }),
+            &cfg(),
+        );
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(ok.translate(&req("hi"), tx).await.is_ok());
         assert_eq!(cache.len(), 1);
