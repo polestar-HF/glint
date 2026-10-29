@@ -70,7 +70,7 @@
   .choice-text {
     display: flex;
     flex-direction: column;
-    gap: 2px;
+    gap: 4px;
     min-width: 0;
   }
   .choice-title {
@@ -100,6 +100,7 @@
     height: 20px;
     margin: 0;
     border-radius: 50%;
+    corner-shape: round;
     border: 1px solid var(--stroke-strong);
     background: var(--bg-subtle-track);
     display: grid;
@@ -113,6 +114,7 @@
     width: 8px;
     height: 8px;
     border-radius: 50%;
+    corner-shape: round;
     background: var(--on-accent);
     transform: scale(0);
     transition: transform var(--dur-2) var(--ease-out);

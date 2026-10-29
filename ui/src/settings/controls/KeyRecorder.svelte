@@ -147,10 +147,10 @@
     display: inline-flex;
     align-items: center;
     justify-content: flex-start;
-    gap: 6px;
+    gap: 8px;
     min-width: 176px;
     height: 32px;
-    padding: 0 12px 0 5px;
+    padding: 0 12px 0 4px;
     border-radius: var(--r-sm);
     border: 1px solid var(--stroke-control);
     border-bottom-color: var(--stroke-control-bottom);
@@ -170,7 +170,7 @@
   }
   .placeholder {
     flex: 1;
-    padding-left: 7px;
+    padding-left: 8px;
     text-align: left;
     color: var(--text-3);
     font-size: 13px;

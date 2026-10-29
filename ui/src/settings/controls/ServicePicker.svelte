@@ -186,7 +186,7 @@
     gap: 12px;
     width: 100%;
     height: 32px;
-    padding: 6px 12px;
+    padding: 4px 12px;
     border-radius: var(--r-sm);
     color: var(--text-1);
     transition: background-color var(--dur-1) var(--ease-std);

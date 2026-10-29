@@ -35,11 +35,11 @@
     align-items: center;
     gap: 24px;
     min-height: 56px;
-    padding: 10px 16px;
+    padding: 8px 16px;
   }
   .row.compact {
     min-height: 44px;
-    padding-block: 6px;
+    padding-block: 4px;
   }
   .row-text {
     flex: 1 1 auto;
@@ -60,7 +60,7 @@
   .row-msg {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 6px;
     font-family: var(--font-small);
     font-size: var(--fs-caption);

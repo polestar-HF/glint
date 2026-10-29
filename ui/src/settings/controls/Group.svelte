@@ -26,7 +26,7 @@
     justify-content: space-between;
     gap: 16px;
     margin: 0 0 8px;
-    padding: 0 2px;
+    padding: 0 4px;
     font-family: var(--font-text);
     font-size: 14px;
     line-height: 20px;

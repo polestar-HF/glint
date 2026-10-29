@@ -56,7 +56,7 @@ html.preview #app {
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 .nav-item {
   position: relative;
@@ -85,7 +85,8 @@ html.preview #app {
   top: 10px;
   bottom: 10px;
   width: 3px;
-  border-radius: 2px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
   background: var(--accent);
   animation: indicator-in var(--dur-2) var(--ease-out);
 }
@@ -102,7 +103,7 @@ html.preview #app {
 .nav-foot {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   margin-top: auto;
   padding: 0 12px;
   height: 24px;
@@ -138,7 +139,7 @@ html.preview #app {
 .field {
   width: 100%;
   height: 32px;
-  padding: 0 10px;
+  padding: 0 12px;
   border-radius: var(--r-sm);
   border: 1px solid var(--stroke-control);
   border-bottom-color: var(--stroke-control-bottom);
@@ -164,7 +165,7 @@ html.preview #app {
 textarea.field {
   height: auto;
   min-height: 64px;
-  padding: 6px 10px;
+  padding: 4px 12px;
   line-height: 20px;
   resize: vertical;
   field-sizing: content;
@@ -180,6 +181,7 @@ textarea.field {
   width: 12px;
   height: 12px;
   border-radius: 50%;
+  corner-shape: round;
   border: 1.5px solid var(--text-4);
   border-top-color: var(--text-1);
   animation: spin 0.8s linear infinite;

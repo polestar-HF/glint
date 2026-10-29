@@ -188,7 +188,7 @@
 <style>
   .note {
     margin: 0;
-    padding: 14px 16px;
+    padding: 12px 16px;
     font-size: 13px;
     line-height: 20px;
     color: var(--text-2);
@@ -200,7 +200,7 @@
   /* Tables: a caption-like first header cell, right-aligned tabular numbers, no row rules.
      The median carries the weight; P90 and max step back. */
   .table {
-    padding: 10px 16px 12px;
+    padding: 8px 16px 12px;
   }
   .tr {
     display: grid;
@@ -250,7 +250,7 @@
   }
 
   .system {
-    padding: 10px 16px 12px;
+    padding: 8px 16px 12px;
   }
   .system .tcap {
     display: block;
@@ -284,7 +284,7 @@
     padding: 8px 16px;
   }
   .actions .btn:not(.subtle) {
-    gap: 6px;
+    gap: 8px;
   }
   .confirm-text {
     margin-right: 4px;
@@ -303,10 +303,10 @@
     bottom: 20px;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     height: 28px;
-    padding: 0 12px 0 10px;
-    border-radius: var(--r-sm);
+    padding: 0 12px 0 8px;
+    border-radius: var(--r-lg);
     background: var(--bg-inverse);
     color: var(--text-inverse);
     font-family: var(--font-small);

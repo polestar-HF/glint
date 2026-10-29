@@ -70,9 +70,13 @@
   --sp-5: 20px;
   --sp-6: 24px;
   --sp-8: 32px;
-  --r-sm: 4px; /* controls, keycaps */
-  --r-md: 6px; /* settings groups */
-  --r-lg: 8px; /* flyouts, windows */
+  /* Radii follow r = R − p from the outside in, never below 4. The window (Windows 11
+     draws 8) and everything floating on it share --r-lg; anything inset by ≥ 4 px
+     lands on --r-sm. Pills and circles use --r-pill with corner-shape: round. */
+  --r-lg: 8px; /* window, flyouts, toasts, settings page pane */
+  --r-md: 4px; /* settings cards: 8 − 28 page padding → floor 4 */
+  --r-sm: 4px; /* controls, menu items (8 − 4 flyout padding), keycaps, chips */
+  --r-pill: 999px; /* toggles, knobs, indicator bars, carets, scrollbar thumbs */
   --gutter: 16px; /* popup content inset */
 
   /* ── Elevation (flyouts only; surfaces use hairlines, not shadows) ─────── */

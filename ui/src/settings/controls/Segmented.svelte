@@ -35,17 +35,17 @@
 <style>
   .seg {
     display: inline-flex;
-    gap: 2px;
-    padding: 2px;
+    gap: 4px;
+    padding: 4px;
     border-radius: var(--r-sm);
     border: 1px solid var(--stroke-control);
     background: var(--bg-subtle-track);
   }
   button {
-    height: 26px;
+    height: 22px;
     min-width: 64px;
     padding: 0 12px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     font-size: 13px;
     color: var(--text-2);
     border: 1px solid transparent;

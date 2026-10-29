@@ -109,7 +109,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    padding: 10px 16px 14px;
+    padding: 8px 16px 12px;
   }
   .title {
     font-size: 14px;
@@ -129,7 +129,7 @@
   }
   .swatches {
     display: flex;
-    gap: 6px;
+    gap: 8px;
   }
   .swatch {
     --c: light-dark(var(--sw), oklch(from var(--sw) 0.76 calc(c * 0.72) h));
@@ -152,7 +152,7 @@
     width: 100px;
   }
   .hex .field {
-    padding-left: 30px;
+    padding-left: 32px;
     text-transform: uppercase;
   }
   .hex-chip {
@@ -161,7 +161,7 @@
     top: 9px;
     width: 14px;
     height: 14px;
-    border-radius: 3px;
+    border-radius: var(--r-sm);
     background: light-dark(var(--sw), oklch(from var(--sw) 0.76 calc(c * 0.72) h));
     box-shadow: inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1));
     pointer-events: none;
@@ -214,7 +214,8 @@
     height: 1.15em;
     margin-left: 2px;
     vertical-align: -0.2em;
-    border-radius: 1px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
     background: var(--accent);
   }
 </style>

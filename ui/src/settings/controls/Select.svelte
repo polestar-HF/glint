@@ -239,7 +239,8 @@
     top: 8px;
     bottom: 8px;
     width: 3px;
-    border-radius: 2px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
     background: var(--accent);
   }
   @keyframes list-in {

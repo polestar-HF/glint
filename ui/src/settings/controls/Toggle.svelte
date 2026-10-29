@@ -28,7 +28,8 @@
     flex: none;
     width: 40px;
     height: 20px;
-    border-radius: 10px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
     border: 1px solid var(--stroke-strong);
     background: var(--bg-subtle-track);
     transition:
@@ -45,7 +46,8 @@
     width: 12px;
     height: 12px;
     margin-top: -6px;
-    border-radius: 6px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
     background: var(--text-2);
     transition:
       transform var(--dur-2) var(--ease-out),

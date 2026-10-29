@@ -279,7 +279,7 @@
     align-items: center;
     gap: 8px;
     min-height: 60px;
-    padding: 10px 16px 10px 4px;
+    padding: 8px 16px 8px 4px;
   }
   .grip {
     flex: none;
@@ -350,7 +350,7 @@
   .test-result {
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 8px;
     margin-top: 6px;
     font-family: var(--font-small);
     font-size: var(--fs-caption);
@@ -383,14 +383,14 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 2px;
+    gap: 4px;
   }
   .engine-actions :global(.toggle) {
     margin-left: 12px;
   }
   .disclose {
     gap: 4px;
-    padding-right: 6px;
+    padding-right: 8px;
   }
   .disclose :global(.icon) {
     color: var(--text-2);
@@ -416,9 +416,9 @@
   .f-label {
     display: flex;
     flex-direction: column;
-    padding-top: 6px;
+    padding-top: 4px;
     font-size: 13px;
-    line-height: 20px;
+    line-height: 24px;
     color: var(--text-2);
   }
   .f-opt {
@@ -458,7 +458,7 @@
     color: var(--text-1);
   }
   .remove {
-    gap: 6px;
+    gap: 8px;
     color: var(--critical);
   }
   .btn.danger {
