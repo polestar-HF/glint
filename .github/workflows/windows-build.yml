@@ -1,0 +1,222 @@
+name: Windows build
+
+# Reusable workflow, called by ci.yml (every push / PR) and release.yml (tags).
+# Lints and tests the whole workspace on Windows, builds the NSIS installer
+# and a portable zip, uploads both as artifacts and prints their sizes in the
+# job summary (size is a product KPI, see docs/ARCHITECTURE.md).
+#
+# Artifacts: glint-installer (Glint_<ver>_x64-setup.exe)
+#            glint-portable  (Glint_<ver>_x64-portable.zip)
+
+on:
+  workflow_call:
+    inputs:
+      retention-days:
+        description: Days to keep the uploaded artifacts.
+        type: number
+        default: 7
+    # Code signing (not enabled yet): declare the secrets here and have the
+    # callers pass them, e.g.
+    #   secrets:
+    #     WINDOWS_CERTIFICATE: { required: false }
+    #     WINDOWS_CERTIFICATE_PASSWORD: { required: false }
+    # then use `secrets: inherit` in the calling job.
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+  # Tool versions. Bump deliberately; "stable" also works for the toolchain.
+  RUST_TOOLCHAIN: "1.97.0"
+  NODE_VERSION: "22"
+  TAURI_CLI_VERSION: "2.12.4" # npm @tauri-apps/cli; keep in step with the `tauri` crate (2.12.x)
+  # What CI runs. Adjust here.
+  CLIPPY_SCOPE: "--workspace --all-targets"
+  TEST_SCOPE: "--workspace"
+  # Set to "true" if glint-ocr needs dict.txt next to det.onnx / rec.onnx.
+  MODELS_WITH_DICT: "false"
+  # Portable zip layout: <exe> + these folders from target/release (the
+  # resources tauri-build copied next to the exe) + any DLLs next to the exe.
+  APP_BIN: glint
+  PORTABLE_RESOURCE_DIRS: models
+  # Size KPI: installer budget (MiB). Exceeding it warns, it does not fail.
+  INSTALLER_BUDGET_MIB: "45"
+
+jobs:
+  build:
+    name: Build (Windows x64)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal \
+            --component clippy --target x86_64-pc-windows-msvc --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: windows-msvc
+          # Only the default branch writes the cache; PRs and tags read it.
+          save-if: ${{ github.ref_name == github.event.repository.default_branch }}
+          cache-on-failure: true
+          # glint-ocr's ort-static feature: ort-sys downloads ONNX Runtime into
+          # this folder and links it from there. It has to be cached together
+          # with target/, or a cache hit skips the download and linking fails.
+          cache-directories: ~/AppData/Local/ort.pyke.io
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+
+      - name: Install UI dependencies
+        working-directory: ui
+        run: npm ci --no-audit --no-fund
+
+      # The cache key is derived from the fetch scripts, which hold the pinned
+      # SHA-256 checksums; the script re-verifies whatever the cache restored.
+      - name: Cache OCR models
+        uses: actions/cache@v5
+        with:
+          path: src-tauri/resources/models
+          key: models-${{ runner.os }}-dict-${{ env.MODELS_WITH_DICT }}-${{ hashFiles('scripts/fetch-models.*', 'scripts/onnx_meta.py') }}
+
+      # Must run before any cargo step on `glint`: tauri-build copies the
+      # bundled resources (models) and errors out if they are missing.
+      - name: Fetch OCR models
+        shell: pwsh
+        run: |
+          $fetchArgs = @()
+          if ($env:MODELS_WITH_DICT -eq 'true') { $fetchArgs += '-WithDict' }
+          ./scripts/fetch-models.ps1 @fetchArgs
+
+      # Must run before any cargo step on `glint` as well: the crate embeds
+      # ui/dist at compile time (tauri::generate_context!).
+      - name: Build UI
+        working-directory: ui
+        run: npm run build
+
+      # The *_SCOPE variables are flag lists, hence the unquoted expansion.
+      - name: Clippy
+        run: |
+          # shellcheck disable=SC2086
+          cargo clippy $CLIPPY_SCOPE --locked -- -D warnings
+
+      - name: Test
+        run: |
+          # shellcheck disable=SC2086
+          cargo test $TEST_SCOPE --locked
+
+      # --- Code signing: intentionally off for now -------------------------
+      # To enable later (secrets: WINDOWS_CERTIFICATE = base64 .pfx,
+      # WINDOWS_CERTIFICATE_PASSWORD):
+      #   1. Add a pwsh step before the build that imports the .pfx into
+      #      Cert:\CurrentUser\My and exports its thumbprint, e.g.
+      #        $pfx = Join-Path $env:RUNNER_TEMP 'cert.pfx'
+      #        [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+      #        $pw = ConvertTo-SecureString $env:WINDOWS_CERTIFICATE_PASSWORD -AsPlainText -Force
+      #        $c = Import-PfxCertificate -FilePath $pfx -CertStoreLocation Cert:\CurrentUser\My -Password $pw
+      #        "WINDOWS_CERTIFICATE_THUMBPRINT=$($c.Thumbprint)" >> $env:GITHUB_ENV
+      #   2. Set bundle.windows.certificateThumbprint, digestAlgorithm and
+      #      timestampUrl in src-tauri/tauri.conf.json (or use signCommand
+      #      for Azure Trusted Signing / a cloud HSM).
+      #   3. Pass the secrets from the caller (`secrets: inherit`).
+      # ----------------------------------------------------------------------
+      - name: Build NSIS installer
+        run: npx --yes "@tauri-apps/cli@${TAURI_CLI_VERSION}" build --bundles nsis
+
+      - name: Package portable zip and report sizes
+        id: package
+        shell: pwsh
+        run: |
+          $ProgressPreference = 'SilentlyContinue' # progress rendering slows Compress-Archive down
+          $profileDir = 'target/release'
+          $exe = Get-Item (Join-Path $profileDir "$($env:APP_BIN).exe")
+          $installer = Get-ChildItem (Join-Path $profileDir 'bundle/nsis') -Filter '*-setup.exe' |
+            Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          if (-not $installer) { throw "No NSIS installer found in $profileDir/bundle/nsis" }
+
+          # Glint_0.1.0_x64-setup.exe -> Glint_0.1.0_x64-portable.zip
+          $base = $installer.BaseName -replace '-setup$', ''
+          $stageName = "$base-portable"
+          $stage = Join-Path $env:RUNNER_TEMP $stageName
+          $dist = New-Item -ItemType Directory -Force -Path 'dist'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item $exe.FullName -Destination $stage
+          foreach ($dir in ($env:PORTABLE_RESOURCE_DIRS -split ',')) {
+            $src = Join-Path $profileDir $dir.Trim()
+            if (-not (Test-Path -LiteralPath $src -PathType Container)) {
+              throw "Resource folder '$src' not found: check bundle.resources in tauri.conf.json"
+            }
+            Copy-Item -LiteralPath $src -Destination $stage -Recurse
+          }
+          $dlls = @(Get-ChildItem $profileDir -Filter '*.dll' -File)
+          $dlls | Copy-Item -Destination $stage
+
+          $zip = Join-Path $dist.FullName "$stageName.zip"
+          Compress-Archive -Path $stage -DestinationPath $zip -CompressionLevel Optimal
+          $installerOut = Copy-Item $installer.FullName -Destination $dist.FullName -PassThru
+
+          $modelsBytes = (Get-ChildItem (Join-Path $stage 'models') -Recurse -File -ErrorAction SilentlyContinue |
+            Measure-Object -Property Length -Sum).Sum
+          function Format-Mib([double]$Bytes) { '{0:N1} MiB' -f ($Bytes / 1MB) }
+
+          $installerMib = $installerOut.Length / 1MB
+          $budget = [double]$env:INSTALLER_BUDGET_MIB
+          $status = if ($installerMib -le $budget) { 'within budget' } else { 'OVER BUDGET' }
+          if ($installerMib -gt $budget) {
+            Write-Host "::warning title=Installer over size budget::$(Format-Mib $installerOut.Length) > $budget MiB"
+          }
+
+          $rows = @(
+            '### Glint Windows build',
+            '',
+            '| Artifact | Size | Note |',
+            '|---|---:|---|',
+            "| ``$($exe.Name)`` | $(Format-Mib $exe.Length) | release binary, unpacked |",
+            "| ``$($installerOut.Name)`` | $(Format-Mib $installerOut.Length) | budget $budget MiB: $status |",
+            "| ``$stageName.zip`` | $(Format-Mib (Get-Item $zip).Length) | portable: exe + resources + DLLs |",
+            "| ``models/`` | $(Format-Mib $modelsBytes) | unpacked, inside both of the above |"
+          )
+          foreach ($dll in $dlls) { $rows += "| ``$($dll.Name)`` | $(Format-Mib $dll.Length) | DLL next to the exe |" }
+          $rows | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
+          $rows | ForEach-Object { Write-Host $_ }
+
+          "installer=dist/$($installerOut.Name)" >> $env:GITHUB_OUTPUT
+          "zip=dist/$stageName.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Upload installer
+        uses: actions/upload-artifact@v7
+        with:
+          name: glint-installer
+          path: ${{ steps.package.outputs.installer }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+          compression-level: 0 # already compressed
+
+      - name: Upload portable zip
+        uses: actions/upload-artifact@v7
+        with:
+          name: glint-portable
+          path: ${{ steps.package.outputs.zip }}
+          if-no-files-found: error
+          retention-days: ${{ inputs.retention-days }}
+          compression-level: 0 # already compressed

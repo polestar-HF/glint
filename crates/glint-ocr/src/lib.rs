@@ -5,6 +5,8 @@
 use image::RgbaImage;
 use serde::Serialize;
 
+pub mod postprocess;
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct OcrLine {

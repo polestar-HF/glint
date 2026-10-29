@@ -49,27 +49,34 @@ impl Lang {
         if norm.is_empty() {
             return None;
         }
-        let primary = norm.split('-').next().unwrap_or("");
-        Some(match norm.as_str() {
-            "auto" => Lang::Auto,
-            "zh-hans" | "zh-cn" | "zh-sg" | "zh-chs" => Lang::ZhHans,
-            "zh-hant" | "zh-tw" | "zh-hk" | "zh-mo" | "zh-cht" => Lang::ZhHant,
-            _ => match primary {
-                "zh" => Lang::ZhHans,
-                "en" => Lang::En,
-                "ja" => Lang::Ja,
-                "ko" => Lang::Ko,
-                "fr" => Lang::Fr,
-                "de" => Lang::De,
-                "es" => Lang::Es,
-                "ru" => Lang::Ru,
-                "pt" => Lang::Pt,
-                "it" => Lang::It,
-                "vi" => Lang::Vi,
-                "th" => Lang::Th,
-                "ar" => Lang::Ar,
-                _ => return None,
-            },
+        if norm == "auto" {
+            return Some(Lang::Auto);
+        }
+        let mut tags = norm.split('-');
+        let primary = tags.next().unwrap_or("");
+        if primary == "zh" {
+            // The script or region decides: `zh-Hant-HK` and `zh-TW` are Traditional; a bare
+            // `zh`, `zh-CN`, `zh-SG` and `zh-Hans-CN` are Simplified.
+            return Some(if tags.any(|t| matches!(t, "hant" | "tw" | "hk" | "mo" | "cht")) {
+                Lang::ZhHant
+            } else {
+                Lang::ZhHans
+            });
+        }
+        Some(match primary {
+            "en" => Lang::En,
+            "ja" => Lang::Ja,
+            "ko" => Lang::Ko,
+            "fr" => Lang::Fr,
+            "de" => Lang::De,
+            "es" => Lang::Es,
+            "ru" => Lang::Ru,
+            "pt" => Lang::Pt,
+            "it" => Lang::It,
+            "vi" => Lang::Vi,
+            "th" => Lang::Th,
+            "ar" => Lang::Ar,
+            _ => return None,
         })
     }
 
@@ -284,6 +291,9 @@ mod tests {
         assert_eq!(Lang::parse("zh-CN"), Some(Lang::ZhHans));
         assert_eq!(Lang::parse("zh_tw"), Some(Lang::ZhHant));
         assert_eq!(Lang::parse("zh-Hant-HK"), Some(Lang::ZhHant));
+        assert_eq!(Lang::parse("zh-Hans-CN"), Some(Lang::ZhHans));
+        assert_eq!(Lang::parse("zh-CHT"), Some(Lang::ZhHant));
+        assert_eq!(Lang::parse("auto-x"), None);
         assert_eq!(Lang::parse("pt-BR"), Some(Lang::Pt));
         assert_eq!(Lang::parse(" AUTO "), Some(Lang::Auto));
         assert_eq!(Lang::parse(""), None);

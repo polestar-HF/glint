@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light dark" />
+    <title>Glint</title>
+    <script>
+      // Boot (runs before first paint). Keep tiny: theme/accent/size from the last-known
+      // config, Mica vs solid background, and the browser-preview flag.
+      (function () {
+        var d = document.documentElement, c = d.classList, q = location.search;
+        var tauri = '__TAURI_INTERNALS__' in window;
+        if (!tauri) {
+          c.add('preview');
+          c.add(/[?&]mica\b/.test(q) ? 'sim-mica' : 'no-mica');
+        } else if (/[?&](nomica|mica=0)\b/.test(q)) {
+          c.add('no-mica');
+        } else if (navigator.userAgentData && navigator.userAgentData.getHighEntropyValues) {
+          // Windows 10 reports platformVersion < 13: no Mica, use the solid fallback.
+          navigator.userAgentData.getHighEntropyValues(['platformVersion']).then(function (v) {
+            if (parseInt(v.platformVersion, 10) < 13) c.add('no-mica');
+          });
+        }
+        try {
+          var u = JSON.parse(localStorage.getItem('glint.ui') || 'null');
+          if (u) {
+            if (u.theme === 'light' || u.theme === 'dark') d.setAttribute('data-theme', u.theme);
+            if (u.accent) d.style.setProperty('--accent-base', u.accent);
+            if (u.fontSize) d.style.setProperty('--content-size', u.fontSize + 'px');
+            if (u.lang) d.lang = u.lang;
+          }
+        } catch (e) {}
+      })();
+    </script>
+    <script type="module" src="/src/popup/main.ts"></script>
+  </head>
+  <body>
+    <div id="app">
+      <!-- First frame: replaced by the Svelte app on mount, geometry identical. -->
+      <div class="popup">
+        <header class="strip" data-tauri-drag-region></header>
+        <div class="body">
+          <div class="content">
+            <section class="sec source">
+              <div class="sec-head"></div>
+              <div class="sk"><span class="sk-line" style="--w: 100%"></span><span class="sk-line" style="--w: 64%"></span></div>
+            </section>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

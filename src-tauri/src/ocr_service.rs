@@ -14,14 +14,16 @@ struct Loaded {
 
 pub struct OcrService {
     model_dir: PathBuf,
+    /// Absolute path of the bundled onnxruntime.dll (Windows 11 ships an older one in System32).
+    ort_dylib: PathBuf,
     slot: Mutex<Option<Loaded>>,
     /// Serializes loads so a preload and a real request never load twice.
     load_lock: Mutex<()>,
 }
 
 impl OcrService {
-    pub fn new(model_dir: PathBuf) -> Self {
-        Self { model_dir, slot: Mutex::new(None), load_lock: Mutex::new(()) }
+    pub fn new(model_dir: PathBuf, ort_dylib: PathBuf) -> Self {
+        Self { model_dir, ort_dylib, slot: Mutex::new(None), load_lock: Mutex::new(()) }
     }
 
     /// Return the engine for `kind`, loading it if needed. Blocking; call off the UI thread.
@@ -77,7 +79,10 @@ impl OcrService {
             #[cfg(windows)]
             "windows" => Ok(Arc::new(glint_ocr::WindowsOcr::new("auto")?)),
             _ => {
-                let opts = glint_ocr::PaddleOptions::default();
+                let opts = glint_ocr::PaddleOptions {
+                    ort_dylib_path: Some(self.ort_dylib.clone()),
+                    ..Default::default()
+                };
                 Ok(Arc::new(glint_ocr::PaddleOcr::load(&self.model_dir, opts)?))
             }
         }

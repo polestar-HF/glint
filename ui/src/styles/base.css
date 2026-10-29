@@ -1,0 +1,276 @@
+/* Base: reset, typography, shared primitives (buttons, keycaps), scrollbars,
+   and the browser-preview window chrome (html.preview only; never shipped behavior). */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  height: 100%;
+}
+
+html {
+  background: var(--bg-window);
+  color: var(--text-1);
+  font-family: var(--font-text);
+  font-size: var(--fs-body);
+  line-height: 20px;
+  font-synthesis-weight: none;
+  -webkit-text-size-adjust: none;
+  text-size-adjust: none;
+}
+
+body {
+  overflow: hidden;
+  /* Native apps don't let you select labels. Content areas opt back in. */
+  user-select: none;
+  cursor: default;
+}
+
+[lang]:not(:root) {
+  font-family: var(--font-text);
+}
+
+#app {
+  height: 100%;
+  isolation: isolate;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+  letter-spacing: inherit;
+  margin: 0;
+}
+
+button {
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  text-align: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin: 0;
+  font: inherit;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-outer);
+  outline-offset: 1px;
+}
+
+/* Thin scrollbars that thicken on hover, like Fluent's. */
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border: 4px solid transparent;
+  border-radius: 6px;
+  background: var(--text-4) padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  border-width: 3px;
+  background-color: var(--text-3);
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* ── Icon button: transparent until hovered ─────────────────────────────── */
+.icon-btn {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    color var(--dur-1) var(--ease-std);
+}
+.icon-btn.sm {
+  width: 24px;
+  height: 24px;
+}
+.icon-btn:hover {
+  background: var(--bg-subtle-hover);
+  color: var(--text-1);
+}
+.icon-btn:active {
+  background: var(--bg-subtle-pressed);
+  color: var(--text-2);
+}
+.icon-btn[aria-pressed='true'] {
+  color: var(--accent);
+}
+.icon-btn:disabled {
+  color: var(--text-4);
+  background: none;
+}
+
+/* ── Text button: inline action ("重试", "重新翻译") ───────────────────────── */
+.text-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  height: 24px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-sm);
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--accent);
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-std);
+}
+.text-btn:hover {
+  background: var(--bg-subtle-hover);
+}
+.text-btn:active {
+  background: var(--bg-subtle-pressed);
+}
+.text-btn.neutral {
+  color: var(--text-2);
+}
+
+/* ── Standard button (Fluent "Button") ──────────────────────────────────── */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 32px;
+  min-width: 64px;
+  padding: 0 var(--sp-3);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--stroke-control);
+  border-bottom-color: var(--stroke-control-bottom);
+  background: var(--bg-control) padding-box;
+  color: var(--text-1);
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-std);
+}
+.btn:hover {
+  background-color: var(--bg-control-hover);
+}
+.btn:active {
+  background-color: var(--bg-control-pressed);
+  color: var(--text-2);
+  border-bottom-color: var(--stroke-control);
+}
+.btn:disabled {
+  color: var(--text-4);
+  background-color: var(--bg-control-pressed);
+}
+.btn.sm {
+  height: 28px;
+  min-width: 0;
+  padding: 0 10px;
+}
+
+/* ── Keycap ─────────────────────────────────────────────────────────────── */
+.keys {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--stroke-control);
+  border-bottom-width: 2px;
+  border-bottom-color: var(--stroke-control-bottom);
+  background: var(--bg-control) padding-box;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.kbd.ghost {
+  min-width: 0;
+  height: 18px;
+  padding: 0 4px;
+  border-bottom-width: 1px;
+  background: none;
+  color: inherit;
+  font-size: 11px;
+}
+
+/* ── Browser preview chrome ─────────────────────────────────────────────────
+   Outside Tauri (vite dev / preview) the page draws a stand-in for the native
+   window: Windows 11 frame, corner radius and shadow. Tauri never sets .preview. */
+html.preview {
+  --desktop: light-dark(#dfe1e4, #141516);
+  background: var(--desktop);
+  height: auto;
+}
+html.preview body {
+  height: auto;
+  min-height: 100vh;
+  overflow: auto;
+  padding: 32px;
+}
+html.preview #app {
+  position: relative;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--bg-window);
+  box-shadow:
+    0 0 0 1px light-dark(rgb(0 0 0 / 0.12), rgb(255 255 255 / 0.1)),
+    0 8px 24px light-dark(rgb(0 0 0 / 0.16), rgb(0 0 0 / 0.5)),
+    0 2px 6px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.3));
+}
+/* Simulated Mica: a heavily blurred, tinted wallpaper behind a translucent window. */
+html.preview.sim-mica {
+  background:
+    radial-gradient(60% 80% at 15% 20%, light-dark(#c9d6cf, #213a33) 0%, transparent 70%),
+    radial-gradient(70% 70% at 85% 80%, light-dark(#e3d3c1, #3a2a1f) 0%, transparent 70%),
+    var(--desktop);
+}
+html.preview.sim-mica #app {
+  background: light-dark(rgb(243 243 243 / 0.84), rgb(32 32 32 / 0.86));
+  backdrop-filter: blur(60px) saturate(1.25);
+}

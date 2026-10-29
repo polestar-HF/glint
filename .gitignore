@@ -4,3 +4,6 @@ ui/dist/
 /models/
 *.onnx
 .DS_Store
+/src-tauri/resources/models/
+/src-tauri/resources/*.dll
+/src-tauri/gen/

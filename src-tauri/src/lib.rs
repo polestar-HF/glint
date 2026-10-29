@@ -102,14 +102,16 @@ pub fn run() {
             let config_dir = app.path().app_config_dir()?;
             let config_path = config::config_path(&config_dir);
             let cfg = config::load(&config_path);
-            let model_dir = app.path().resource_dir()?.join("models").join("v6-small");
+            let resource_dir = app.path().resource_dir()?;
+            let model_dir = resource_dir.join("models").join("v6-small");
+            let ort_dylib = resource_dir.join("onnxruntime.dll");
 
             let http = glint_translate::http_client();
 
             app.manage(AppState {
                 config: RwLock::new(cfg.clone()),
                 config_path,
-                ocr: Arc::new(OcrService::new(model_dir)),
+                ocr: Arc::new(OcrService::new(model_dir, ort_dylib)),
                 http,
                 translate_cache: glint_translate::Cache::default(),
                 capturing: AtomicBool::new(false),

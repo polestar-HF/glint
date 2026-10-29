@@ -1,0 +1,131 @@
+/* Glint design tokens. Documented in docs/DESIGN.md — keep the two in sync.
+   Colors use light-dark(): the light value first, the dark value second.
+   The theme follows the system unless <html data-theme="light|dark"> overrides it. */
+
+:root {
+  color-scheme: light dark;
+
+  /* ── Accent ───────────────────────────────────────────────────────────────
+     --accent-base comes from config.ui.accent (light-theme value, also used by the
+     native overlay). The dark-theme accent is derived: same hue, lighter, calmer. */
+  --accent-base: #1e6ac5;
+  --accent: light-dark(var(--accent-base), oklch(from var(--accent-base) 0.76 calc(c * 0.72) h));
+  --accent-hover: color-mix(in srgb, var(--accent) 90%, transparent);
+  --accent-pressed: color-mix(in srgb, var(--accent) 80%, transparent);
+  --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
+  --on-accent: light-dark(#ffffff, #000000);
+
+  /* ── Surfaces ─────────────────────────────────────────────────────────────
+     Window background is transparent so the Mica material shows through.
+     .no-mica (Windows 10, or the effect failed) swaps in the solid base. */
+  --bg-base: light-dark(#f3f3f3, #202020);
+  --bg-window: transparent;
+  --bg-layer: light-dark(rgb(255 255 255 / 0.5), rgb(58 58 58 / 0.3));
+  --bg-card: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.051));
+  --bg-control: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.061));
+  --bg-control-hover: light-dark(rgb(249 249 249 / 0.5), rgb(255 255 255 / 0.084));
+  --bg-control-pressed: light-dark(rgb(249 249 249 / 0.3), rgb(255 255 255 / 0.033));
+  --bg-control-input: light-dark(#ffffff, #1e1e1e);
+  --bg-subtle-hover: light-dark(rgb(0 0 0 / 0.037), rgb(255 255 255 / 0.061));
+  --bg-subtle-pressed: light-dark(rgb(0 0 0 / 0.024), rgb(255 255 255 / 0.042));
+  --bg-subtle-track: light-dark(rgb(0 0 0 / 0.024), rgb(0 0 0 / 0.1));
+  --bg-flyout: light-dark(#fcfcfc, #2c2c2c);
+  --bg-inverse: light-dark(#2b2b2b, #f0f0f0);
+  --text-inverse: light-dark(#ffffff, #1a1a1a);
+  --skeleton: light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.07));
+
+  /* ── Strokes ──────────────────────────────────────────────────────────── */
+  --stroke-divider: light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.084));
+  --stroke-card: light-dark(rgb(0 0 0 / 0.058), rgb(0 0 0 / 0.1));
+  --stroke-control: light-dark(rgb(0 0 0 / 0.058), rgb(255 255 255 / 0.07));
+  --stroke-control-bottom: light-dark(rgb(0 0 0 / 0.162), rgb(255 255 255 / 0.093));
+  --stroke-strong: light-dark(rgb(0 0 0 / 0.446), rgb(255 255 255 / 0.544));
+  --stroke-flyout: light-dark(rgb(0 0 0 / 0.094), rgb(0 0 0 / 0.36));
+  --focus-outer: light-dark(rgb(0 0 0 / 0.9), #ffffff);
+
+  /* ── Text ─────────────────────────────────────────────────────────────── */
+  --text-1: light-dark(rgb(0 0 0 / 0.896), #ffffff);
+  --text-quiet: light-dark(rgb(0 0 0 / 0.78), rgb(255 255 255 / 0.86));
+  --text-2: light-dark(rgb(0 0 0 / 0.606), rgb(255 255 255 / 0.786));
+  --text-3: light-dark(rgb(0 0 0 / 0.446), rgb(255 255 255 / 0.544));
+  --text-4: light-dark(rgb(0 0 0 / 0.361), rgb(255 255 255 / 0.363));
+
+  /* ── Status ───────────────────────────────────────────────────────────── */
+  --critical: light-dark(#c42b1c, #ff99a4);
+  --success: light-dark(#0f7b0f, #6ccb5f);
+  --caution: light-dark(#9d5d00, #fce100);
+
+  /* ── Type (families: see the [lang] block below) ─────────────────────── */
+  --font-cjk: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Yu Gothic UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --fs-caption: 12px; /* lh 16 */
+  --fs-body: 14px; /* lh 20 */
+  --fs-subtitle: 20px; /* lh 28 */
+  --fs-title: 28px; /* lh 36 */
+  --content-size: 14px; /* config.ui.fontSize */
+  --content-lh: round(nearest, calc(var(--content-size) * 1.6), 2px);
+
+  /* ── Space, radius, size ──────────────────────────────────────────────── */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --r-sm: 4px; /* controls, keycaps */
+  --r-md: 6px; /* settings groups */
+  --r-lg: 8px; /* flyouts, windows */
+  --gutter: 16px; /* popup content inset */
+
+  /* ── Elevation (flyouts only; surfaces use hairlines, not shadows) ─────── */
+  --shadow-flyout: 0 8px 16px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.26));
+  --shadow-control: 0 1px 1px light-dark(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.12));
+
+  /* ── Motion ───────────────────────────────────────────────────────────── */
+  --dur-1: 120ms; /* hover, color, exits */
+  --dur-2: 160ms; /* entrances, disclosure */
+  --ease-out: cubic-bezier(0.1, 0.9, 0.2, 1); /* decelerate: things arriving */
+  --ease-in: cubic-bezier(0.7, 0, 1, 0.5); /* accelerate: things leaving */
+  --ease-std: cubic-bezier(0.33, 0, 0.67, 1); /* point-to-point changes */
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+.no-mica {
+  --bg-window: var(--bg-base);
+}
+
+/* Type families. Segoe UI Variable has optical-size cuts (Small ≤ 12px, Text, Display ≥ 20px);
+   CJK falls back per glyph. No web fonts: the popup must paint in one frame.
+   Declared on every [lang] element so content tagged ja / zh-TW / ko re-resolves --font-cjk. */
+:root,
+[lang] {
+  --font-text: 'Segoe UI Variable Text', 'Segoe UI', var(--font-cjk);
+  --font-small: 'Segoe UI Variable Small', 'Segoe UI', var(--font-cjk);
+  --font-display: 'Segoe UI Variable Display', 'Segoe UI', var(--font-cjk);
+  --font-mono: 'Cascadia Mono', Consolas, var(--font-cjk);
+}
+
+/* Content language → CJK glyph forms and the matching system face. */
+:lang(ja) {
+  --font-cjk: 'Yu Gothic UI', 'Meiryo UI', 'Microsoft YaHei UI', sans-serif;
+}
+:lang(zh-TW),
+:lang(zh-Hant) {
+  --font-cjk: 'Microsoft JhengHei UI', 'Microsoft YaHei UI', sans-serif;
+}
+:lang(ko) {
+  --font-cjk: 'Malgun Gothic', 'Microsoft YaHei UI', sans-serif;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-1: 0ms;
+    --dur-2: 0ms;
+  }
+}

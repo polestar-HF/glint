@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"] # branch pushes only; tags are handled by release.yml
+  pull_request:
+  workflow_dispatch:
+
+# One run per branch (a push and its PR share the group); never cancel runs on
+# the default branch, so its caches always get written.
+concurrency:
+  group: ci-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: ${{ github.ref_name != github.event.repository.default_branch }}
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash # -eo pipefail
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: "0"
+  RUST_BACKTRACE: "1"
+
+jobs:
+  rust-linux:
+    name: Rust (Linux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      RUST_TOOLCHAIN: "1.97.0" # "stable" also works
+      # Per-crate cargo flags: adjust here. glint-ocr: the OCR engineer defines
+      # the features ort-static (default) and ort-dynamic; use "" to test the
+      # default on Linux. The `src-tauri` crate is Windows-only for us (see
+      # windows-build.yml).
+      OCR_FLAGS: "--no-default-features --features ort-dynamic"
+      # Set to "true" if glint-ocr needs dict.txt next to det.onnx / rec.onnx.
+      MODELS_WITH_DICT: "false"
+      # ONNX Runtime shared library for ort-dynamic tests, taken from the PyPI
+      # wheel (identical in every cpXY wheel); exported as ORT_DYLIB_PATH.
+      ORT_VERSION: "1.31.1"
+      ORT_LIB_SHA256: "fc44112fbe06d7d689c57e11d3862031f64711007e4ee020f8eed5185fd2c1d3"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: |
+          rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal \
+            --component clippy,rustfmt --no-self-update
+          rustup default "$RUST_TOOLCHAIN"
+          rustc --version
+          cargo --version
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: linux
+          save-if: ${{ github.ref_name == github.event.repository.default_branch }}
+          cache-on-failure: true
+
+      - name: Check that the fetch scripts agree
+        run: |
+          # fetch-models.sh and .ps1 pin the same wheel, members and checksums.
+          pins() {
+            grep -ohE '[0-9a-f]{64}|rapidocr/models/[A-Za-z0-9_.-]+\.onnx' "$1" | sort -u
+            sed -nE "s/^RAPIDOCR_VERSION=\"(.*)\"/version \1/p; s/^\\\$RapidocrVersion = '(.*)'/version \1/p" "$1"
+          }
+          if ! diff <(pins scripts/fetch-models.sh) <(pins scripts/fetch-models.ps1); then
+            echo "::error::scripts/fetch-models.sh and scripts/fetch-models.ps1 pin different values"
+            exit 1
+          fi
+
+      - name: Cache OCR models
+        uses: actions/cache@v5
+        with:
+          path: src-tauri/resources/models
+          key: models-${{ runner.os }}-dict-${{ env.MODELS_WITH_DICT }}-${{ hashFiles('scripts/fetch-models.*', 'scripts/onnx_meta.py') }}
+
+      - name: Fetch OCR models
+        run: |
+          flags=()
+          if [ "$MODELS_WITH_DICT" = "true" ]; then flags+=(--with-dict); fi
+          bash scripts/fetch-models.sh "${flags[@]}"
+
+      - name: Fetch ONNX Runtime (shared library)
+        run: |
+          dir="$RUNNER_TEMP/ort"
+          mkdir -p "$dir/wheel"
+          python3 -m pip download "onnxruntime==${ORT_VERSION}" --no-deps --only-binary=:all: \
+            --platform manylinux_2_28_x86_64 --python-version 3.12 --implementation cp --abi cp312 \
+            --disable-pip-version-check --quiet -d "$dir/wheel"
+          unzip -p "$dir"/wheel/onnxruntime-*.whl "onnxruntime/capi/libonnxruntime.so.${ORT_VERSION}" > "$dir/libonnxruntime.so"
+          echo "${ORT_LIB_SHA256}  $dir/libonnxruntime.so" | sha256sum -c -
+          echo "ORT_DYLIB_PATH=$dir/libonnxruntime.so" >> "$GITHUB_ENV"
+
+      - name: Format
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: |
+          # shellcheck disable=SC2086 # OCR_FLAGS is a list of flags
+          cargo clippy -p glint-ocr $OCR_FLAGS --all-targets --locked -- -D warnings
+          cargo clippy -p glint-translate -p glint-overlay --all-targets --locked -- -D warnings
+
+      - name: Test
+        run: |
+          # shellcheck disable=SC2086 # OCR_FLAGS is a list of flags
+          cargo test -p glint-ocr $OCR_FLAGS --locked
+          cargo test -p glint-translate -p glint-overlay --locked
+
+  windows:
+    name: Windows
+    uses: ./.github/workflows/windows-build.yml
+    permissions:
+      contents: read
+    with:
+      retention-days: 7
+    # secrets: inherit # once code signing is enabled (see windows-build.yml)

@@ -1,0 +1,396 @@
+/* Popup. Global (not component-scoped) because popup.html carries a static copy of the
+   first frame — strip plus a skeleton — that must look identical before the JS mounts. */
+
+html.preview #app {
+  width: var(--preview-w, 420px);
+  height: var(--preview-h, 120px);
+}
+html.preview-hidden #app {
+  opacity: 0.4;
+  transition: opacity var(--dur-1) var(--ease-std);
+}
+
+.popup {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+
+.grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* ── Title strip: on Mica, draggable ──────────────────────────────────────
+   Right padding is 10px, not 8/12: it puts the close glyph's 16px box on the
+   same 16px content edge as the section icons below. */
+.strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 36px;
+  padding: 0 10px 0 8px;
+}
+.strip > .grow {
+  align-self: stretch;
+}
+
+.strip-title {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding-left: 8px;
+  font-size: 13px;
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.strip-sub {
+  color: var(--text-3);
+}
+.strip-sub::before {
+  content: '·';
+  margin-right: 6px;
+}
+
+.langs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+}
+.lang-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 156px;
+  height: 28px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--text-1);
+  transition: background-color var(--dur-1) var(--ease-std);
+}
+.lang-btn:hover {
+  background: var(--bg-subtle-hover);
+}
+.lang-btn[aria-expanded='true'] {
+  background: var(--bg-subtle-pressed);
+}
+.lang-btn > .icon {
+  color: var(--text-3);
+}
+.lang-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lang-auto {
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  color: var(--text-3);
+}
+
+/* ── Language menu (flyout) ───────────────────────────────────────────────── */
+.lang-menu {
+  position: absolute;
+  z-index: 20;
+  top: 38px;
+  left: 8px;
+  width: min(calc(100% - 16px), 384px);
+  padding: 4px;
+  border-radius: var(--r-lg);
+  border: 1px solid var(--stroke-flyout);
+  background: var(--bg-flyout);
+  box-shadow: var(--shadow-flyout);
+  animation: flyout-in var(--dur-2) var(--ease-out);
+}
+.lang-menu-title {
+  padding: 4px 8px 6px;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--text-3);
+}
+.lang-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 2px;
+}
+.lang-item {
+  position: relative;
+  height: 32px;
+  padding: 0 8px 0 12px;
+  border-radius: var(--r-sm);
+  font-size: 13px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background-color var(--dur-1) var(--ease-std);
+}
+.lang-item:hover {
+  background: var(--bg-subtle-hover);
+}
+.lang-item[aria-selected='true'] {
+  background: var(--bg-subtle-hover);
+}
+.lang-item[aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 9px;
+  bottom: 9px;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+}
+.lang-item:focus-visible {
+  outline-offset: -2px;
+}
+
+@keyframes flyout-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+/* ── Body: content layer ──────────────────────────────────────────────────── */
+.body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  border-top: 1px solid var(--stroke-divider);
+  background: var(--bg-layer);
+}
+.content {
+  display: flex;
+  flex-direction: column;
+}
+
+.sec {
+  position: relative;
+  padding: 8px var(--gutter) 12px;
+}
+.sec + .sec {
+  border-top: 1px solid var(--stroke-divider);
+}
+.sec.collapsed {
+  padding-bottom: 8px;
+}
+
+/* Icons bleed 4px into the gutter so their glyphs, not their hit areas, align. */
+.sec-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 24px;
+  margin-right: -4px;
+}
+.sec-label {
+  flex: none;
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.meta {
+  flex: none;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.sec-peek {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--text-3);
+}
+.sec-actions {
+  display: flex;
+  opacity: 0;
+  transition: opacity var(--dur-1) var(--ease-std);
+}
+.sec:hover .sec-actions,
+.sec:focus-within .sec-actions,
+.sec.collapsed .sec-actions {
+  opacity: 1;
+}
+.sec-head .text-btn {
+  margin-right: 2px;
+}
+
+/* Content text. The primary engine reads a step louder than the rest. */
+.text {
+  display: block;
+  margin-top: 2px;
+  font-size: var(--content-size);
+  line-height: var(--content-lh);
+  color: var(--text-quiet);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+  cursor: text;
+}
+.result.primary {
+  --content-size-p: calc(var(--content-size) + 1px);
+}
+.result.primary .text {
+  font-size: var(--content-size-p);
+  line-height: round(nearest, calc(var(--content-size-p) * 1.6), 2px);
+  color: var(--text-1);
+}
+.result.primary .sk-line {
+  height: round(nearest, calc(var(--content-size-p) * 1.6), 2px);
+}
+
+textarea.src-text {
+  width: 100%;
+  min-height: var(--content-lh);
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  resize: none;
+  field-sizing: content;
+  color: var(--text-2);
+  caret-color: var(--accent);
+  transition: color var(--dur-1) var(--ease-std);
+}
+textarea.src-text:focus {
+  color: var(--text-1);
+}
+
+/* Streaming caret: a thin accent bar that breathes, never a block cursor. */
+.caret {
+  display: inline-block;
+  width: 2px;
+  height: 1.15em;
+  margin-left: 2px;
+  vertical-align: -0.2em;
+  border-radius: 1px;
+  background: var(--accent);
+  animation: caret 1.1s var(--ease-std) infinite;
+}
+@keyframes caret {
+  50% {
+    opacity: 0.2;
+  }
+}
+
+/* Skeleton lines sit on the same line grid as real text, so nothing jumps. */
+.sk {
+  display: flex;
+  flex-direction: column;
+  margin-top: 2px;
+}
+.sk-line {
+  display: flex;
+  align-items: center;
+  height: var(--content-lh);
+}
+.sk-line::before {
+  content: '';
+  width: var(--w, 100%);
+  height: 8px;
+  border-radius: 2px;
+  background: var(--skeleton);
+  animation: sk 1.2s var(--ease-std) infinite alternate;
+}
+@keyframes sk {
+  to {
+    opacity: 0.45;
+  }
+}
+
+/* Compact error line with an inline retry. */
+.err {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  margin: 2px -8px 0 0;
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--text-2);
+}
+.err-icon {
+  display: grid;
+  color: var(--critical);
+}
+.err-msg {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+
+/* ── OCR mode ─────────────────────────────────────────────────────────────── */
+.ocr-sec {
+  padding: 12px var(--gutter) 14px;
+}
+.ocr-sec textarea.src-text {
+  color: var(--text-1);
+}
+.foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 8px 0 var(--gutter);
+  border-top: 1px solid var(--stroke-divider);
+}
+.foot .text-btn:disabled {
+  color: var(--text-4);
+  background: none;
+}
+
+/* ── Toast ────────────────────────────────────────────────────────────────── */
+.toast {
+  position: absolute;
+  z-index: 30;
+  left: 50%;
+  bottom: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--bg-inverse);
+  color: var(--text-inverse);
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  white-space: nowrap;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  pointer-events: none;
+  opacity: 0;
+  transform: translate(-50%, 4px);
+  transition:
+    opacity var(--dur-1) var(--ease-in),
+    transform var(--dur-1) var(--ease-in);
+}
+.toast.shown {
+  opacity: 1;
+  transform: translate(-50%, 0);
+  transition-duration: var(--dur-2);
+  transition-timing-function: var(--ease-out);
+}

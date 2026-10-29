@@ -5,12 +5,31 @@ edition.workspace = true
 license.workspace = true
 publish.workspace = true
 
+[features]
+# `ort-static` is the default and is what CI on Windows uses: `ort`'s build script
+# downloads a prebuilt ONNX Runtime and links it into the executable.
+# `ort-dynamic` loads `onnxruntime.dll` / `libonnxruntime.so` at run time instead
+# (path from `PaddleOptions::ort_dylib_path`, then `ORT_DYLIB_PATH`, then next to
+# the executable). Use it with `--no-default-features`; enabling both makes the build
+# script download a runtime that is then never used.
+# With neither feature, `PaddleOcr::load` returns `OcrError::Unsupported`.
+default = ["ort-static"]
+ort-static = ["dep:ort", "ort/download-binaries", "ort/tls-native"]
+ort-dynamic = ["dep:ort", "ort/load-dynamic"]
+
 [dependencies]
 image.workspace = true
 thiserror.workspace = true
 log.workspace = true
 serde.workspace = true
-# ONNX Runtime binding is chosen by the OCR engineer (see docs/ARCHITECTURE.md).
+# Script-restricted language guess for Latin text (see `postprocess::detect_lang`).
+whatlang = { version = "0.16", default-features = false }
+# ONNX Runtime binding. oar-ocr was rejected: it pins `ort =2.0.0-rc.13` and drags in
+# tokenizers/onig, imageproc, nalgebra, ndarray and every `image` codec (see the report).
+ort = { version = "=2.0.0-rc.15", default-features = false, features = ["std"], optional = true }
+
+[dev-dependencies]
+serde_json.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows = { workspace = true, features = [

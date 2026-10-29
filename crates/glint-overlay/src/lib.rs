@@ -2,8 +2,25 @@
 //!
 //! Contract: see `docs/ARCHITECTURE.md`. Everything here is synchronous; callers run
 //! `select_region` on a dedicated thread because it pumps its own message loop.
+//!
+//! Layout: `capture` (GDI BitBlt) and `overlay` (Win32 + Direct2D) are the Windows
+//! backends. All pure logic (geometry, pixels, gestures, snap hit-testing, scene layout)
+//! is platform-independent and unit-tested on any OS; on other targets it is only
+//! exercised by tests, hence the `dead_code` allowance.
 
 use image::RgbaImage;
+
+#[cfg_attr(not(windows), allow(dead_code))]
+mod geom;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod overlay;
+#[cfg_attr(not(windows), allow(dead_code))]
+mod pixels;
+
+#[cfg(windows)]
+mod capture;
+#[cfg(windows)]
+mod win;
 
 /// Rectangle in virtual-desktop physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -108,9 +125,9 @@ mod imp {
 mod imp {
     use super::*;
     pub fn capture_all() -> Result<Vec<MonitorFrame>> {
-        todo!("capture engineer")
+        crate::capture::capture_all()
     }
-    pub fn select_region(_: Vec<MonitorFrame>, _: &OverlayOptions) -> Result<Outcome> {
-        todo!("capture engineer")
+    pub fn select_region(frames: Vec<MonitorFrame>, opts: &OverlayOptions) -> Result<Outcome> {
+        crate::overlay::select_region(frames, opts)
     }
 }
