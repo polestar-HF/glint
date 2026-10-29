@@ -1,0 +1,73 @@
+{
+  "en_paragraph": {
+    "lines": [
+      "Glint recognizes text on your screen in a fraction of a",
+      "second. Select any region with the mouse, and the transla-",
+      "tion appears right next to it, so you never have to switch",
+      "windows or retype a single word."
+    ],
+    "expected": "Glint recognizes text on your screen in a fraction of a second. Select any region with the mouse, and the translation appears right next to it, so you never have to switch windows or retype a single word.",
+    "lang": "en"
+  },
+  "zh_paragraph": {
+    "lines": [
+      "截图翻译工具可以在几毫秒内识别屏幕上的文字。选择任意区域，",
+      "译文便会显示在旁边，无需切换窗口，也不用手动输入任何内容。",
+      "识别结果支持中文、英文、日文等多种语言。"
+    ],
+    "expected": "截图翻译工具可以在几毫秒内识别屏幕上的文字。选择任意区域，译文便会显示在旁边，无需切换窗口，也不用手动输入任何内容。识别结果支持中文、英文、日文等多种语言。",
+    "lang": "zh"
+  },
+  "ja_kana": {
+    "lines": [
+      "スクリーンショットから文字を読み取り、すぐに翻訳します。",
+      "ひらがなとカタカナ、そして漢字が混ざった文章でも認識できます。"
+    ],
+    "expected": "スクリーンショットから文字を読み取り、すぐに翻訳します。ひらがなとカタカナ、そして漢字が混ざった文章でも認識できます。",
+    "lang": "ja"
+  },
+  "mixed_zh_en": {
+    "lines": [
+      "Glint 支持 Windows 10 和 Windows 11 系统，默认快捷键为",
+      "Alt+Q，可以在 Settings 中修改。Version 0.1.0 已于 2026",
+      "年 10 月发布。"
+    ],
+    "expected": "Glint 支持 Windows 10 和 Windows 11 系统，默认快捷键为Alt+Q，可以在 Settings 中修改。Version 0.1.0 已于 2026年 10 月发布。",
+    "lang": "zh"
+  },
+  "tiny_11px": {
+    "lines": [
+      "The quick brown fox jumps over the lazy dog.",
+      "Pack my box with five dozen liquor jugs."
+    ],
+    "expected": "The quick brown fox jumps over the lazy dog.\nPack my box with five dozen liquor jugs.",
+    "lang": "en",
+    "keep_lines": true
+  },
+  "dark_ui": {
+    "lines": [
+      "General",
+      "Appearance",
+      "Keyboard Shortcuts",
+      "Translation Engines",
+      "About Glint"
+    ],
+    "expected": "General\nAppearance\nKeyboard Shortcuts\nTranslation Engines\nAbout Glint",
+    "lang": "en",
+    "keep_lines": true
+  },
+  "two_column": {
+    "lines": [
+      "Fast offline recognition",
+      "keeps every screenshot on",
+      "your own computer, with no",
+      "upload and no account.",
+      "Translate with the engine",
+      "you trust: a free web service,",
+      "your own API key, or a local",
+      "model running on this PC."
+    ],
+    "expected": "Fast offline recognition keeps every screenshot on your own computer, with no upload and no account.\nTranslate with the engine you trust: a free web service, your own API key, or a local model running on this PC.",
+    "lang": "en"
+  }
+}

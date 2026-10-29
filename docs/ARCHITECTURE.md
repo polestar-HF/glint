@@ -6,7 +6,7 @@ text and its translation.
 
 Product priorities, in order:
 1. **Responsive.** The overlay shows within 50 ms of the hotkey. OCR results appear in under 300 ms for typical regions.
-2. **Light.** Idle RAM stays under 60 MB, measured as the sum of all processes. The installer stays under 40 MB, OCR models included.
+2. **Light.** Idle in the tray (popup destroyed, OCR unloaded) stays under 40 MB, summed over all processes. Active use stays under 250 MB. The installer stays under 45 MB, OCR models included.
 3. **Accurate.** OCR and translation should be as accurate as the engines allow.
 4. **Refined UI.** Calm and typographic, with nothing that looks templated or "AI-generated".
 
@@ -32,9 +32,14 @@ Do not edit files outside your area. If you need a contract change, write it und
 - **Selection overlay: native, not a webview.** One borderless topmost window per monitor.
   It is created at hotkey time and drawn with Direct2D over the frozen frame, so it shows
   instantly, gives a true freeze frame and costs no extra process.
-- **Popup: one WebView2 window.** It is created hidden at startup and reused, never
-  destroyed. This keeps it fast.
+- **Popup: one WebView2 window.** It is created lazily on the first capture, in parallel
+  with OCR, so its cold start overlaps recognition. It is reused while in use and destroyed
+  after `ui.popupIdleDestroySecs` hidden (default 600 s; 0 keeps it resident). The popup page
+  must render a useful "recognizing" state within one frame of loading. It must also tolerate
+  events that arrived before it subscribed: on mount it calls `get_session_snapshot` to catch up.
 - **Settings: a WebView2 window created on demand** and destroyed when closed.
+- **OCR default model: PP-OCRv6 small** (det 9.9 MB + rec 21 MB; covers zh, en, ja and 47
+  more). ONNX Runtime sessions use 2–4 intra-op threads and no memory arena, to limit RAM.
 
 ## Flow
 
@@ -90,6 +95,11 @@ events whose session id is not the latest.
 | `tr:error` | `{ sessionId, engineId, message }` |
 | `config:changed` | the full `Config` |
 
+`get_session_snapshot() -> SessionSnapshot | null` returns `{ sessionId, mode, sourceLang,
+targetLang, ocr: {status: "pending"|"done"|"error", result?, message?}, translations:
+[{engineId, engineName, status: "pending"|"streaming"|"done"|"error", text, message?,
+elapsedMs?}] }`. A freshly created popup uses it to catch up.
+
 | Command | Signature |
 |---|---|
 | `get_config` | `() -> Config` |
@@ -105,9 +115,40 @@ events whose session id is not the latest.
 
 ## Config
 
-The config file is `%APPDATA%\Glint\config.json`. The schema is defined in
-`src-tauri/src/config.rs`. API keys live in the same file under each engine's `apiKey`
-field. Encrypting them with DPAPI is planned for later.
+The config file is `%APPDATA%\Glint\config.json`. The schema is implemented in
+`src-tauri/src/config.rs`. All keys are camelCase, and missing keys fall back to their
+defaults. API keys live in the same file under each engine's `apiKey` field. Encrypting
+them with DPAPI is planned for later.
+
+```jsonc
+{
+  "general":  { "uiLanguage": "zh-CN",            // "zh-CN" | "en-US"
+                "autostart": false },
+  "hotkeys":  { "translate": "Alt+Q",             // screenshot → OCR → translate popup
+                "ocr": "Alt+W",                   // screenshot → OCR popup (no translation)
+                "silentOcr": "Alt+Shift+W" },     // screenshot → OCR → clipboard + toast
+  "ocr":      { "engine": "paddle",               // "paddle" | "windows"
+                "mergeLines": true,
+                "idleUnloadSecs": 300 },
+  "translate":{ "sourceLang": "auto",
+                "targetLang": "zh-Hans",
+                "secondaryLang": "en",            // used when detected source == target
+                "engines": [ /* EngineConfig, display order */ ] },
+  "ui":       { "theme": "system",                // "system" | "light" | "dark"
+                "fontSize": 14,
+                "accent": "#2F6FEB",
+                "closeOnBlur": true,
+                "popupIdleDestroySecs": 600 },
+  "overlay":  { "snapWindows": true, "magnifier": true }
+}
+```
+
+Language codes are BCP-47: `auto zh-Hans zh-Hant en ja ko fr de es ru pt it vi th ar`.
+`glint-translate` maps them to each engine's own codes.
+
+The default engine list is `google` (enabled), `bing` (enabled), then `anthropic` (id
+`claude`, model `claude-haiku-5-5`), `openai`, `deepl`, `youdao` and `baidu`, all disabled.
+The `EngineConfig` fields are defined in `glint-translate/src/lib.rs`.
 
 ## Overlay visual spec (initial; the UI engineer may refine it in DESIGN.md)
 
@@ -125,9 +166,19 @@ field. Encrypting them with DPAPI is planned for later.
 - Rust edition 2021, MSRV is whatever is installed (1.97). Use `thiserror` in libraries and `anyhow` only in `src-tauri`.
 - Never `unwrap()` on I/O, FFI or network paths. Log with the `log` crate.
 - Only the `windows` crate is used for Win32/WinRT (no `winapi`), on version `0.61`.
-- Build checks:
-  - Linux: `cargo check --workspace` and `cargo test -p glint-ocr -p glint-translate`.
-  - Windows from Linux: `cargo xwin check --target x86_64-pc-windows-msvc -p <crate>`.
+- Build environment: a Linux cloud container with restricted egress.
+  - Reachable: crates.io, npm and PyPI.
+  - Blocked: Microsoft download hosts, HuggingFace, cdn.pyke.io and GitHub release assets.
+    That means `cargo xwin` cannot fetch the MSVC CRT.
+- Build checks that work here:
+  - Windows type-check, no linking: `cargo check --target x86_64-pc-windows-msvc -p <crate>`.
+  - Linux: `cargo check -p <crate>` and `cargo test -p <crate>`. `src-tauri` needs webkit2gtk, so it is checked only for the Windows target.
+  - Use your own target dir to avoid lock contention between agents: `CARGO_TARGET_DIR=/home/user/glint/target/<your-area>`.
+  - Real linking and the installer come from GitHub Actions (windows-latest).
+- Test assets:
+  - The PP-OCRv6 small ONNX models are inside the `rapidocr` PyPI wheel, at `rapidocr/models/PP-OCRv6_{det,rec}_small.onnx`.
+  - A Linux ONNX Runtime 1.31 shared library can be obtained from PyPI or npm packages.
+  - Never commit models or binaries (see `.gitignore`).
 - Keep dependencies lean and justify each new crate in your PR notes.
 
 ## Contract change requests
