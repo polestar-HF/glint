@@ -6,7 +6,18 @@ use crate::{hotkeys, popup};
 
 pub const LABEL: &str = "settings";
 
+/// Show the settings window, creating it if needed.
+///
+/// `WebviewWindowBuilder::build` blocks on the main thread's event loop and deadlocks on
+/// Windows when it is called from the main thread itself, which is where sync commands, tray
+/// menu events and the single-instance callback run. So the work always moves to a blocking
+/// task.
 pub fn open(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn_blocking(move || open_now(&app));
+}
+
+fn open_now(app: &AppHandle) {
     if let Some(w) = app.get_webview_window(LABEL) {
         let _ = w.unminimize();
         let _ = w.show();

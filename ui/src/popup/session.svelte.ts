@@ -80,8 +80,12 @@ export class Session {
   start(p: SessionStart) {
     if (p.sessionId < this.id) return;
     if (p.sessionId === this.id) {
-      // Duplicate start (e.g. already applied from a snapshot): only refresh langs/mode.
+      // Duplicate start (already applied from a snapshot, or the backend reporting the
+      // language pair it really uses once OCR has detected the text language): only
+      // refresh langs/mode.
       this.mode = p.mode;
+      this.sourceLang = p.sourceLang;
+      this.targetLang = p.targetLang;
       return;
     }
     this.id = p.sessionId;
@@ -118,7 +122,9 @@ export class Session {
     this.ocrStatus = 'done';
     this.ocrEngine = p.engine;
     this.ocrElapsed = p.elapsedMs;
-    this.detectedLang = p.detectedLang;
+    // OCR reports a bare "zh" (it cannot tell scripts apart); the UI's language list has no such
+    // code, so name it, and compare it with the target, as Simplified.
+    this.detectedLang = p.detectedLang === 'zh' ? 'zh-Hans' : p.detectedLang;
     this.lineCount = p.lines?.length ?? 0;
     this.ocrText = p.text;
     this.submittedText = p.text;

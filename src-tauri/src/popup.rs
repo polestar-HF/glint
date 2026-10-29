@@ -59,6 +59,11 @@ fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         builder = builder.transparent(true).effects(mica_effect());
     }
     let win = builder.build()?;
+    // A fresh page starts unpinned; the flag outlives a destroyed popup and would otherwise
+    // keep the new one open on blur while its pin button shows "unpinned".
+    app.state::<AppState>()
+        .popup_pinned
+        .store(false, Ordering::Relaxed);
 
     let app2 = app.clone();
     win.on_window_event(move |event| {

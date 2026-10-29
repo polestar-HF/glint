@@ -124,7 +124,9 @@ pub fn run() {
         )
         .setup(|app| {
             let handle = app.handle().clone();
-            let config_dir = app.path().app_config_dir()?;
+            // `%APPDATA%\Glint` (docs/ARCHITECTURE.md, About page). `app_config_dir()` would
+            // be `%APPDATA%\<bundle identifier>` instead.
+            let config_dir = app.path().config_dir()?.join("Glint");
             let config_path = config::config_path(&config_dir);
             let cfg = config::load(&config_path);
             let resource_dir = app.path().resource_dir()?;

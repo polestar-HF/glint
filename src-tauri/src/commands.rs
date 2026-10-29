@@ -25,9 +25,12 @@ pub fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -
     config::save(&state.config_path, &config).map_err(|e| e.to_string())?;
     state.set_config(config.clone());
 
-    if previous.hotkeys != config.hotkeys {
-        hotkeys::register(&app, &config.hotkeys).map_err(|e| e.to_string())?;
-    }
+    // A conflicting hotkey is reported to the caller, but must not skip the rest of the save.
+    let hotkeys_result = if previous.hotkeys != config.hotkeys {
+        hotkeys::register(&app, &config.hotkeys).map_err(|e| e.to_string())
+    } else {
+        Ok(())
+    };
     if previous.general.autostart != config.general.autostart {
         let al = app.autolaunch();
         let res = if config.general.autostart {
@@ -40,7 +43,7 @@ pub fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -
         }
     }
     let _ = app.emit("config:changed", &config);
-    Ok(())
+    hotkeys_result
 }
 
 #[tauri::command]

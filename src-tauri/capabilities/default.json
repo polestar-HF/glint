@@ -7,10 +7,12 @@
     "core:default",
     "core:window:allow-start-dragging",
     "core:window:allow-set-theme",
-    "core:window:allow-hide",
-    "core:window:allow-close",
-    "core:window:allow-minimize",
-    "core:window:allow-set-focus",
-    "opener:default"
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://github.com/polestar-HF/glint" },
+        { "url": "https://github.com/polestar-HF/glint/*" }
+      ]
+    }
   ]
 }

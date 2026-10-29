@@ -184,12 +184,24 @@ fn run_session(app: &AppHandle, sel: Selection) {
 
         if mode == Mode::Translate && !result.text.trim().is_empty() {
             let target = effective_target(
+                &cfg.translate.source_lang,
                 result.detected_lang.as_deref(),
                 &cfg.translate.target_lang,
                 &cfg.translate.secondary_lang,
             );
             if target != cfg.translate.target_lang {
                 state.update_session(session_id, |s| s.target_lang = target.clone());
+                // The popup learned the configured target from `session:start`; tell it which
+                // language is really used (a repeated start for the same id only updates it).
+                let _ = app.emit(
+                    "session:start",
+                    SessionStart {
+                        session_id,
+                        mode,
+                        source_lang: cfg.translate.source_lang.clone(),
+                        target_lang: target.clone(),
+                    },
+                );
             }
             translate(
                 &app,
@@ -430,13 +442,29 @@ fn ocr_user_message(e: &anyhow::Error) -> String {
     }
 }
 
-/// If the recognized text is already in the target language, translate into the
-/// secondary language instead (e.g. Chinese text with target zh-Hans → English).
-pub fn effective_target(detected: Option<&str>, target: &str, secondary: &str) -> String {
+/// If the text is already in the target language, translate into the secondary language
+/// instead (e.g. Chinese text with target zh-Hans → English). With source "auto" that is
+/// decided by the language OCR detected; an explicitly chosen source is the user's word for
+/// what the text is, so a mismatching guess must not override the chosen pair.
+pub fn effective_target(
+    source: &str,
+    detected: Option<&str>,
+    target: &str,
+    secondary: &str,
+) -> String {
     let primary = |code: &str| code.split('-').next().unwrap_or(code).to_ascii_lowercase();
-    match detected {
-        Some(d) if primary(d) == primary(target) => secondary.to_string(),
-        _ => target.to_string(),
+    if secondary.trim().is_empty() || glint_translate::langs::is_auto(secondary) {
+        return target.to_string();
+    }
+    let already_target = if glint_translate::langs::is_auto(source) {
+        detected.is_some_and(|d| primary(d) == primary(target))
+    } else {
+        glint_translate::langs::same_lang(source, target)
+    };
+    if already_target {
+        secondary.to_string()
+    } else {
+        target.to_string()
     }
 }
 
@@ -446,9 +474,25 @@ mod tests {
 
     #[test]
     fn flips_to_secondary_when_source_is_target() {
-        assert_eq!(effective_target(Some("zh"), "zh-Hans", "en"), "en");
-        assert_eq!(effective_target(Some("en"), "zh-Hans", "en"), "zh-Hans");
-        assert_eq!(effective_target(None, "zh-Hans", "en"), "zh-Hans");
-        assert_eq!(effective_target(Some("en"), "en", "zh-Hans"), "zh-Hans");
+        let auto = |d, t, s| effective_target("auto", d, t, s);
+        assert_eq!(auto(Some("zh"), "zh-Hans", "en"), "en");
+        assert_eq!(auto(Some("en"), "zh-Hans", "en"), "zh-Hans");
+        assert_eq!(auto(None, "zh-Hans", "en"), "zh-Hans");
+        assert_eq!(auto(Some("en"), "en", "zh-Hans"), "zh-Hans");
+        assert_eq!(auto(Some("zh"), "zh-Hans", ""), "zh-Hans");
+    }
+
+    #[test]
+    fn explicit_source_is_not_overridden_by_detection() {
+        // Kanji-only Japanese is detected as "zh", but the user said it is Japanese.
+        assert_eq!(
+            effective_target("ja", Some("zh"), "zh-Hans", "en"),
+            "zh-Hans"
+        );
+        assert_eq!(effective_target("zh-Hans", None, "zh-Hans", "en"), "en");
+        assert_eq!(
+            effective_target("zh-Hant", None, "zh-Hans", "en"),
+            "zh-Hans"
+        );
     }
 }
