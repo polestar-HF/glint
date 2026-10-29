@@ -236,6 +236,14 @@ html.preview-hidden #app {
   margin-right: 2px;
 }
 
+/* While the source is edited, the old translations step back until re-translated. */
+.result {
+  transition: opacity var(--dur-2) var(--ease-std);
+}
+.stale .result {
+  opacity: 0.5;
+}
+
 /* Content text. The primary engine reads a step louder than the rest. */
 .text {
   display: block;
@@ -278,6 +286,14 @@ textarea.src-text {
 textarea.src-text:focus {
   color: var(--text-1);
 }
+/* Editing is signalled by the caret, brighter text and a faint wash — not a box. */
+textarea.src-text:focus-visible {
+  outline: none;
+}
+.sec.source:focus-within,
+.ocr-sec:focus-within {
+  background: light-dark(rgb(0 0 0 / 0.018), rgb(255 255 255 / 0.022));
+}
 
 /* Streaming caret: a thin accent bar that breathes, never a block cursor. */
 .caret {
@@ -306,6 +322,9 @@ textarea.src-text:focus {
   display: flex;
   align-items: center;
   height: var(--content-lh);
+}
+.sk-line.boot-short {
+  --w: 64%; /* static first frame in popup.html (no inline styles: strict CSP) */
 }
 .sk-line::before {
   content: '';

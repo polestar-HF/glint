@@ -25,7 +25,7 @@
 </script>
 
 <div class="hero">
-  <div class="wordmark">Glint</div>
+  <h1 class="wordmark">Glint</h1>
   <div class="tagline">{t('about.tagline')}</div>
   {#if version}<div class="version tnum">{t('about.version', { v: version })}</div>{/if}
 </div>
@@ -57,7 +57,7 @@
 
 <style>
   .hero {
-    margin: -4px 2px 24px;
+    margin: -2px 2px 24px;
   }
   .wordmark {
     font-family: var(--font-display);

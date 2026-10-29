@@ -90,10 +90,10 @@
     </div>
 
     <div class="engine-actions">
-      <button class="btn sm" disabled={test.state === 'running'} onclick={runTest}>
+      <button class="btn sm subtle" disabled={test.state === 'running'} onclick={runTest}>
         {#if test.state === 'running'}<span class="spinner" aria-hidden="true"></span>{t('tr.testing')}{:else}{t('tr.test')}{/if}
       </button>
-      <button class="btn sm disclose" aria-expanded={open} aria-controls="{uid}-panel" onclick={() => (open = !open)}>
+      <button class="btn sm subtle disclose" aria-expanded={open} aria-controls="{uid}-panel" onclick={() => (open = !open)}>
         {t('tr.configure')}<Icon name={open ? 'chevron-up' : 'chevron-down'} />
       </button>
       <Toggle
@@ -273,10 +273,10 @@
     flex: none;
     display: flex;
     align-items: center;
-    gap: 8px;
+    gap: 2px;
   }
   .engine-actions :global(.toggle) {
-    margin-left: 8px;
+    margin-left: 12px;
   }
   .disclose {
     gap: 4px;

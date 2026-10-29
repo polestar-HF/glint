@@ -45,7 +45,7 @@
 
 <Group title={t('hotkeys.groupOverlay')}>
   {#each overlayKeys as k (k.title)}
-    <Row title={t(k.title)}>
+    <Row title={t(k.title)} compact>
       <span class="keys">{#each k.keys as key (key)}<kbd class="kbd">{key}</kbd>{/each}</span>
     </Row>
   {/each}

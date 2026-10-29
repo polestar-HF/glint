@@ -59,7 +59,7 @@
   }
   button[aria-checked='true'] {
     color: var(--text-1);
-    background: var(--bg-control-input);
+    background: light-dark(#ffffff, rgb(255 255 255 / 0.09));
     border-color: var(--stroke-control);
     box-shadow: var(--shadow-control);
   }

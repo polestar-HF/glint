@@ -4,7 +4,7 @@ use std::sync::atomic::Ordering;
 use std::sync::mpsc::Sender;
 use std::time::{Duration, Instant};
 
-use glint_overlay::{Action, OverlayOptions, Outcome, Selection};
+use glint_overlay::{Action, Outcome, OverlayOptions, Selection};
 use glint_translate::{EngineEvent, TranslateRequest};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -29,22 +29,26 @@ pub struct OverlayJob {
 /// own (never the Tauri main thread or a tokio worker); jobs arrive over a channel.
 pub fn spawn_overlay_worker(app: AppHandle) -> std::io::Result<Sender<OverlayJob>> {
     let (tx, rx) = std::sync::mpsc::channel::<OverlayJob>();
-    std::thread::Builder::new().name("glint-overlay".into()).spawn(move || {
-        for job in rx {
-            if job.popup_was_visible {
-                // Give DWM a frame to actually remove the popup before BitBlt.
-                std::thread::sleep(Duration::from_millis(40));
+    std::thread::Builder::new()
+        .name("glint-overlay".into())
+        .spawn(move || {
+            for job in rx {
+                if job.popup_was_visible {
+                    // Give DWM a frame to actually remove the popup before BitBlt.
+                    std::thread::sleep(Duration::from_millis(40));
+                }
+                let outcome = glint_overlay::capture_all()
+                    .and_then(|frames| glint_overlay::select_region(frames, &job.opts));
+                app.state::<AppState>()
+                    .capturing
+                    .store(false, Ordering::SeqCst);
+                match outcome {
+                    Ok(Outcome::Selected(sel)) => run_session(&app, sel),
+                    Ok(Outcome::Cancelled) => {}
+                    Err(e) => log::error!("capture failed: {e}"),
+                }
             }
-            let outcome = glint_overlay::capture_all()
-                .and_then(|frames| glint_overlay::select_region(frames, &job.opts));
-            app.state::<AppState>().capturing.store(false, Ordering::SeqCst);
-            match outcome {
-                Ok(Outcome::Selected(sel)) => run_session(&app, sel),
-                Ok(Outcome::Cancelled) => {}
-                Err(e) => log::error!("capture failed: {e}"),
-            }
-        }
-    })?;
+        })?;
     Ok(tx)
 }
 
@@ -73,7 +77,14 @@ pub fn start_capture(app: &AppHandle, mode: CaptureMode) {
         snap_windows: cfg.overlay.snap_windows,
         show_magnifier: cfg.overlay.magnifier,
     };
-    if state.overlay_tx.send(OverlayJob { opts, popup_was_visible }).is_err() {
+    if state
+        .overlay_tx
+        .send(OverlayJob {
+            opts,
+            popup_was_visible,
+        })
+        .is_err()
+    {
         log::error!("overlay worker is gone");
         state.capturing.store(false, Ordering::SeqCst);
     }
@@ -84,13 +95,27 @@ fn run_session(app: &AppHandle, sel: Selection) {
     let cfg = state.config();
     let session_id = state.next_session_id();
     let silent = sel.action == Action::CopyText;
-    let mode = if sel.action == Action::OcrOnly { Mode::Ocr } else { Mode::Translate };
+    let mode = if sel.action == Action::OcrOnly {
+        Mode::Ocr
+    } else {
+        Mode::Translate
+    };
 
     if !silent {
-        begin_session(app, session_id, mode, &cfg.translate.source_lang, &cfg.translate.target_lang);
+        begin_session(
+            app,
+            session_id,
+            mode,
+            &cfg.translate.source_lang,
+            &cfg.translate.target_lang,
+        );
         popup::show_at(
             app,
-            Anchor { rect: sel.rect, work_area: sel.work_area, scale: sel.scale as f64 },
+            Anchor {
+                rect: sel.rect,
+                work_area: sel.work_area,
+                scale: sel.scale as f64,
+            },
         );
     }
 
@@ -106,7 +131,9 @@ fn run_session(app: &AppHandle, sel: Selection) {
         let started = Instant::now();
         let result = tokio::task::spawn_blocking(move || {
             let engine = ocr.get(&engine_kind)?;
-            engine.recognize(&sel.image, &opts).map_err(anyhow::Error::from)
+            engine
+                .recognize(&sel.image, &opts)
+                .map_err(anyhow::Error::from)
         })
         .await
         .map_err(anyhow::Error::from)
@@ -116,14 +143,20 @@ fn run_session(app: &AppHandle, sel: Selection) {
         let result = match result {
             Ok(r) => r,
             Err(e) => {
-                let message = format!("{e:#}");
-                log::error!("ocr failed: {message}");
+                log::error!("ocr failed: {e:#}");
+                let message = ocr_user_message(&e);
                 if !silent {
                     state.update_session(session_id, |s| {
                         s.ocr.status = Status::Error;
                         s.ocr.message = Some(message.clone());
                     });
-                    let _ = app.emit("ocr:error", SessionError { session_id, message });
+                    let _ = app.emit(
+                        "ocr:error",
+                        SessionError {
+                            session_id,
+                            message,
+                        },
+                    );
                 }
                 return;
             }
@@ -138,7 +171,11 @@ fn run_session(app: &AppHandle, sel: Selection) {
             return;
         }
 
-        let payload = OcrPayload { session_id, result: result.clone(), elapsed_ms };
+        let payload = OcrPayload {
+            session_id,
+            result: result.clone(),
+            elapsed_ms,
+        };
         state.update_session(session_id, |s| {
             s.ocr.status = Status::Done;
             s.ocr.result = Some(payload.clone());
@@ -154,8 +191,14 @@ fn run_session(app: &AppHandle, sel: Selection) {
             if target != cfg.translate.target_lang {
                 state.update_session(session_id, |s| s.target_lang = target.clone());
             }
-            translate(&app, session_id, result.text, cfg.translate.source_lang.clone(), target)
-                .await;
+            translate(
+                &app,
+                session_id,
+                result.text,
+                cfg.translate.source_lang.clone(),
+                target,
+            )
+            .await;
         }
     });
     state.replace_session_task(task);
@@ -179,18 +222,63 @@ pub fn retranslate(app: &AppHandle, text: String, source: String, target: String
 
 fn begin_session(app: &AppHandle, session_id: u64, mode: Mode, source: &str, target: &str) {
     let state = app.state::<AppState>();
-    state.set_session(SessionSnapshot::new(session_id, mode, source.into(), target.into()));
+    state.set_session(SessionSnapshot::new(
+        session_id,
+        mode,
+        source.into(),
+        target.into(),
+    ));
     let _ = app.emit(
         "session:start",
-        SessionStart { session_id, mode, source_lang: source.into(), target_lang: target.into() },
+        SessionStart {
+            session_id,
+            mode,
+            source_lang: source.into(),
+            target_lang: target.into(),
+        },
     );
 }
 
+/// Re-run one engine inside the current session (the popup's per-engine "重试").
+pub fn retranslate_engine(
+    app: &AppHandle,
+    session_id: u64,
+    engine_id: String,
+    text: String,
+    source: String,
+    target: String,
+) {
+    let state = app.state::<AppState>();
+    if !state.is_current_session(session_id) {
+        return;
+    }
+    let app = app.clone();
+    // Not tracked as the session task: a retry must not abort the other engines.
+    tauri::async_runtime::spawn(async move {
+        translate_with(&app, session_id, text, source, target, Some(&engine_id)).await;
+    });
+}
+
 async fn translate(app: &AppHandle, session_id: u64, text: String, source: String, target: String) {
+    translate_with(app, session_id, text, source, target, None).await;
+}
+
+async fn translate_with(
+    app: &AppHandle,
+    session_id: u64,
+    text: String,
+    source: String,
+    target: String,
+    only_engine: Option<&str>,
+) {
     let state = app.state::<AppState>();
     let cfg = state.config();
     let mut engines = Vec::new();
-    for ec in cfg.translate.engines.iter().filter(|e| e.enabled) {
+    let selected = cfg.translate.engines.iter().filter(|e| match only_engine {
+        Some(id) => e.id == id,
+        None => e.enabled,
+    });
+    for ec in selected {
         match glint_translate::build_cached(ec, &state.http, &state.translate_cache) {
             Ok(engine) => engines.push(engine),
             Err(e) => {
@@ -212,36 +300,72 @@ async fn translate(app: &AppHandle, session_id: u64, text: String, source: Strin
         secondary_lang: Some(cfg.translate.secondary_lang.clone()),
     };
     let app2 = app.clone();
-    glint_translate::translate_all(&engines, &req, move |ev| on_engine_event(&app2, session_id, ev))
-        .await;
+    glint_translate::translate_all(&engines, &req, move |ev| {
+        on_engine_event(&app2, session_id, ev)
+    })
+    .await;
 }
 
 fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
     let state = app.state::<AppState>();
     match ev {
-        EngineEvent::Start { engine_id, engine_name } => {
+        EngineEvent::Start {
+            engine_id,
+            engine_name,
+        } => {
             state.update_session(session_id, |s| {
-                s.translations.push(TranslationState {
+                let fresh = TranslationState {
                     engine_id: engine_id.clone(),
                     engine_name: engine_name.clone(),
                     status: Status::Pending,
                     text: String::new(),
+                    delta_count: 0,
                     message: None,
                     elapsed_ms: None,
-                })
-            });
-            let _ = app.emit("tr:start", TrStart { session_id, engine_id, engine_name });
-        }
-        EngineEvent::Delta { engine_id, delta } => {
-            state.update_session(session_id, |s| {
-                if let Some(t) = s.translation_mut(&engine_id) {
-                    t.status = Status::Streaming;
-                    t.text.push_str(&delta);
+                };
+                // A per-engine retry restarts an existing entry in place.
+                match s.translation_mut(&engine_id) {
+                    Some(t) => *t = fresh,
+                    None => s.translations.push(fresh),
                 }
             });
-            let _ = app.emit("tr:delta", TrDelta { session_id, engine_id, delta });
+            let _ = app.emit(
+                "tr:start",
+                TrStart {
+                    session_id,
+                    engine_id,
+                    engine_name,
+                },
+            );
         }
-        EngineEvent::Done { engine_id, text, elapsed_ms } => {
+        EngineEvent::Delta { engine_id, delta } => {
+            let seq = state
+                .update_session(session_id, |s| {
+                    s.translation_mut(&engine_id).map(|t| {
+                        t.status = Status::Streaming;
+                        t.text.push_str(&delta);
+                        t.delta_count += 1;
+                        t.delta_count - 1
+                    })
+                })
+                .flatten();
+            // A stale session has no snapshot entry; the popup ignores its events anyway.
+            let Some(seq) = seq else { return };
+            let _ = app.emit(
+                "tr:delta",
+                TrDelta {
+                    session_id,
+                    engine_id,
+                    delta,
+                    seq,
+                },
+            );
+        }
+        EngineEvent::Done {
+            engine_id,
+            text,
+            elapsed_ms,
+        } => {
             state.update_session(session_id, |s| {
                 if let Some(t) = s.translation_mut(&engine_id) {
                     t.status = Status::Done;
@@ -249,7 +373,15 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     t.elapsed_ms = Some(elapsed_ms);
                 }
             });
-            let _ = app.emit("tr:done", TrDone { session_id, engine_id, text, elapsed_ms });
+            let _ = app.emit(
+                "tr:done",
+                TrDone {
+                    session_id,
+                    engine_id,
+                    text,
+                    elapsed_ms,
+                },
+            );
         }
         EngineEvent::Error { engine_id, message } => {
             state.update_session(session_id, |s| {
@@ -258,7 +390,14 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     t.message = Some(message.clone());
                 }
             });
-            let _ = app.emit("tr:error", TrError { session_id, engine_id, message });
+            let _ = app.emit(
+                "tr:error",
+                TrError {
+                    session_id,
+                    engine_id,
+                    message,
+                },
+            );
         }
     }
 }
@@ -267,9 +406,28 @@ fn emit_tr_error(app: &AppHandle, session_id: u64, engine_id: &str, name: &str, 
     on_engine_event(
         app,
         session_id,
-        EngineEvent::Start { engine_id: engine_id.into(), engine_name: name.into() },
+        EngineEvent::Start {
+            engine_id: engine_id.into(),
+            engine_name: name.into(),
+        },
     );
-    on_engine_event(app, session_id, EngineEvent::Error { engine_id: engine_id.into(), message });
+    on_engine_event(
+        app,
+        session_id,
+        EngineEvent::Error {
+            engine_id: engine_id.into(),
+            message,
+        },
+    );
+}
+
+/// One short line for the popup; details stay in the log.
+fn ocr_user_message(e: &anyhow::Error) -> String {
+    match e.downcast_ref::<glint_ocr::OcrError>() {
+        Some(glint_ocr::OcrError::Load(_)) => "识别模型加载失败，请尝试重新安装 Glint".into(),
+        Some(glint_ocr::OcrError::Unsupported) => "当前识别引擎不可用，请在设置中切换".into(),
+        _ => "文字识别失败".into(),
+    }
 }
 
 /// If the recognized text is already in the target language, translate into the

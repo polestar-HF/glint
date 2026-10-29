@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase", default)]
+#[derive(Default)]
 pub struct Config {
     pub general: General,
     pub hotkeys: Hotkeys,
@@ -14,19 +15,6 @@ pub struct Config {
     pub translate: Translate,
     pub ui: Ui,
     pub overlay: Overlay,
-}
-
-impl Default for Config {
-    fn default() -> Self {
-        Self {
-            general: General::default(),
-            hotkeys: Hotkeys::default(),
-            ocr: Ocr::default(),
-            translate: Translate::default(),
-            ui: Ui::default(),
-            overlay: Overlay::default(),
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -38,7 +26,10 @@ pub struct General {
 
 impl Default for General {
     fn default() -> Self {
-        Self { ui_language: "zh-CN".into(), autostart: false }
+        Self {
+            ui_language: "zh-CN".into(),
+            autostart: false,
+        }
     }
 }
 
@@ -52,7 +43,11 @@ pub struct Hotkeys {
 
 impl Default for Hotkeys {
     fn default() -> Self {
-        Self { translate: "Alt+Q".into(), ocr: "Alt+W".into(), silent_ocr: "Alt+Shift+W".into() }
+        Self {
+            translate: "Alt+Q".into(),
+            ocr: "Alt+W".into(),
+            silent_ocr: "Alt+Shift+W".into(),
+        }
     }
 }
 
@@ -67,7 +62,11 @@ pub struct Ocr {
 
 impl Default for Ocr {
     fn default() -> Self {
-        Self { engine: "paddle".into(), merge_lines: true, idle_unload_secs: 300 }
+        Self {
+            engine: "paddle".into(),
+            merge_lines: true,
+            idle_unload_secs: 300,
+        }
     }
 }
 
@@ -107,7 +106,7 @@ impl Default for Ui {
         Self {
             theme: "system".into(),
             font_size: 14,
-            accent: "#2F6FEB".into(),
+            accent: "#1E6AC5".into(),
             close_on_blur: true,
             popup_idle_destroy_secs: 600,
         }
@@ -123,7 +122,10 @@ pub struct Overlay {
 
 impl Default for Overlay {
     fn default() -> Self {
-        Self { snap_windows: true, magnifier: true }
+        Self {
+            snap_windows: true,
+            magnifier: true,
+        }
     }
 }
 
@@ -136,7 +138,7 @@ impl Ui {
                 return v;
             }
         }
-        0x2F6FEB
+        0x1E6AC5
     }
 }
 
@@ -179,7 +181,10 @@ pub fn save(path: &Path, cfg: &Config) -> std::io::Result<()> {
 fn merge_new_engines(cfg: &mut Config) {
     for def in glint_translate::default_engines() {
         if !cfg.translate.engines.iter().any(|e| e.kind == def.kind) {
-            cfg.translate.engines.push(EngineConfig { enabled: false, ..def });
+            cfg.translate.engines.push(EngineConfig {
+                enabled: false,
+                ..def
+            });
         }
     }
 }
@@ -198,10 +203,12 @@ mod tests {
 
     #[test]
     fn accent_parsing() {
-        let mut ui = Ui::default();
-        ui.accent = "#ff8800".into();
+        let mut ui = Ui {
+            accent: "#ff8800".into(),
+            ..Ui::default()
+        };
         assert_eq!(ui.accent_rgb(), 0xFF8800);
         ui.accent = "nope".into();
-        assert_eq!(ui.accent_rgb(), 0x2F6FEB);
+        assert_eq!(ui.accent_rgb(), 0x1E6AC5);
     }
 }

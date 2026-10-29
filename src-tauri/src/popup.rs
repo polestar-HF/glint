@@ -35,24 +35,28 @@ fn ensure(app: &AppHandle) -> tauri::Result<WebviewWindow> {
         return Ok(w);
     }
     let mica = supports_mica();
-    let url = WebviewUrl::App(if mica { "popup.html?mica=1" } else { "popup.html" }.into());
+    let url = WebviewUrl::App(
+        if mica {
+            "popup.html"
+        } else {
+            "popup.html?mica=0"
+        }
+        .into(),
+    );
     let mut builder = WebviewWindowBuilder::new(app, LABEL, url)
         .title("Glint")
         .inner_size(WIDTH, INITIAL_HEIGHT)
         .min_inner_size(300.0, 96.0)
         .decorations(false)
         .resizable(true)
+        .maximizable(false)
         .skip_taskbar(true)
         .always_on_top(true)
         .shadow(true)
         .visible(false)
         .focused(true);
     if mica {
-        use tauri::utils::config::WindowEffectsConfig;
-        use tauri::window::Effect;
-        builder = builder
-            .transparent(true)
-            .effects(WindowEffectsConfig { effects: vec![Effect::Mica], ..Default::default() });
+        builder = builder.transparent(true).effects(mica_effect());
     }
     let win = builder.build()?;
 
@@ -103,7 +107,9 @@ pub fn hide(app: &AppHandle) {
 }
 
 pub fn is_visible(app: &AppHandle) -> bool {
-    window(app).and_then(|w| w.is_visible().ok()).unwrap_or(false)
+    window(app)
+        .and_then(|w| w.is_visible().ok())
+        .unwrap_or(false)
 }
 
 /// The page reports its content height (logical px); grow/shrink to fit, staying on-screen.
@@ -112,14 +118,18 @@ pub fn resize(app: &AppHandle, content_height: f64) {
     let state = app.state::<AppState>();
     let anchor = *state.popup_anchor.lock().unwrap_or_else(|p| p.into_inner());
     let scale = win.scale_factor().unwrap_or(1.0);
-    let Ok(pos) = win.outer_position() else { return };
+    let Ok(pos) = win.outer_position() else {
+        return;
+    };
     let Ok(size) = win.inner_size() else { return };
 
     let (wa_y, wa_h) = match anchor {
         Some(a) => (a.work_area.y, a.work_area.height as f64),
         None => (pos.y, 10_000.0),
     };
-    let h = (content_height * scale).clamp(96.0 * scale, wa_h * MAX_SCREEN_FRACTION).round();
+    let h = (content_height * scale)
+        .clamp(96.0 * scale, wa_h * MAX_SCREEN_FRACTION)
+        .round();
     let mut y = pos.y;
     let bottom_limit = wa_y as f64 + wa_h;
     if y as f64 + h > bottom_limit {
@@ -182,7 +192,15 @@ pub fn place(a: Anchor, w: f64, h: f64) -> (f64, f64, f64, f64) {
     (x.round(), y.round(), w.round(), h.round())
 }
 
-fn supports_mica() -> bool {
+pub fn mica_effect() -> tauri::utils::config::WindowEffectsConfig {
+    tauri::utils::config::WindowEffectsConfig {
+        effects: vec![tauri::window::Effect::Mica],
+        ..Default::default()
+    }
+}
+
+/// Mica needs Windows 11 (build 22000+); Windows 10 gets the page's solid fallback.
+pub fn supports_mica() -> bool {
     #[cfg(windows)]
     {
         windows_build() >= 22000
@@ -216,8 +234,18 @@ mod tests {
 
     fn anchor(x: i32, y: i32, w: u32, h: u32) -> Anchor {
         Anchor {
-            rect: PhysRect { x, y, width: w, height: h },
-            work_area: PhysRect { x: 0, y: 0, width: 1920, height: 1040 },
+            rect: PhysRect {
+                x,
+                y,
+                width: w,
+                height: h,
+            },
+            work_area: PhysRect {
+                x: 0,
+                y: 0,
+                width: 1920,
+                height: 1040,
+            },
             scale: 1.0,
         }
     }

@@ -15,7 +15,11 @@ use image::{
 pub(crate) fn rgba_to_rgb(img: &RgbaImage) -> RgbImage {
     let (w, h) = img.dimensions();
     let mut out = RgbImage::new(w, h);
-    for (s, d) in img.as_raw().chunks_exact(4).zip(out.as_mut().chunks_exact_mut(3)) {
+    for (s, d) in img
+        .as_raw()
+        .chunks_exact(4)
+        .zip(out.as_mut().chunks_exact_mut(3))
+    {
         let a = s[3] as u32;
         if a == 0 || a == 255 {
             d.copy_from_slice(&s[..3]);
@@ -74,7 +78,12 @@ pub(crate) fn round_up(v: u32, m: u32) -> u32 {
 
 /// Places `img` in the middle of a `cw` x `ch` canvas filled with `bg`; returns the canvas and
 /// the offset of the image inside it. `cw`/`ch` must not be smaller than the image.
-pub(crate) fn centered_canvas(img: &RgbImage, cw: u32, ch: u32, bg: [u8; 3]) -> (RgbImage, (u32, u32)) {
+pub(crate) fn centered_canvas(
+    img: &RgbImage,
+    cw: u32,
+    ch: u32,
+    bg: [u8; 3],
+) -> (RgbImage, (u32, u32)) {
     let (w, h) = img.dimensions();
     let (cw, ch) = (cw.max(w), ch.max(h));
     let mut canvas = RgbImage::from_pixel(cw, ch, Rgb(bg));
@@ -91,7 +100,16 @@ pub(crate) fn resize(img: &RgbImage, w: u32, h: u32) -> RgbImage {
         return img.clone();
     }
     let enlarging = (w as u64 * h as u64) >= (sw as u64 * sh as u64);
-    imageops::resize(img, w.max(1), h.max(1), if enlarging { FilterType::Lanczos3 } else { FilterType::Triangle })
+    imageops::resize(
+        img,
+        w.max(1),
+        h.max(1),
+        if enlarging {
+            FilterType::Lanczos3
+        } else {
+            FilterType::Triangle
+        },
+    )
 }
 
 /// `v / 127.5 - 1` for every byte value.
@@ -124,6 +142,79 @@ pub(crate) fn write_bgr_planar(dst: &mut [f32], plane_len: usize, stride: usize,
     }
 }
 
+/// Snaps the vertical extent of an axis-aligned text box to the ink inside it.
+///
+/// Detection at 1x localizes a line only to about +-1.5 px, and for text that the selection
+/// clips (no margin) the DB core can sit several pixels off-centre, which makes the
+/// recognition crop cut ink or leave the text hugging one edge. Recognition is sensitive to that,
+/// so the box is re-centred on the rows that actually contain strokes (horizontal gradient
+/// energy, which also works on gradients and photos), growing or shrinking by at most
+/// `MAX_SHIFT` px per side, with a margin of 20 % of the ink height. Returns `(y0, y1)`; the
+/// input is returned unchanged if no clear ink band is found.
+pub(crate) fn refine_vertical(img: &RgbImage, x0: f32, y0: f32, x1: f32, y1: f32) -> (f32, f32) {
+    const MAX_SHIFT: f32 = 4.0;
+    let (w, h) = img.dimensions();
+    let xa = (x0.floor().max(0.0) as u32).min(w.saturating_sub(2));
+    let xb = (x1.ceil().max(0.0) as u32).min(w);
+    let lo = ((y0 - MAX_SHIFT).floor().max(0.0)) as u32;
+    let hi = ((y1 + MAX_SHIFT).ceil().max(0.0) as u32).min(h);
+    if xb <= xa + 4 || hi <= lo + 4 {
+        return (y0, y1);
+    }
+    let luma = |x: u32, y: u32| {
+        let p = img.get_pixel(x, y).0;
+        (299 * p[0] as i32 + 587 * p[1] as i32 + 114 * p[2] as i32) / 1000
+    };
+    let energy: Vec<f32> = (lo..hi)
+        .map(|y| {
+            (xa..xb - 1)
+                .map(|x| (luma(x + 1, y) - luma(x, y)).abs() as f32)
+                .sum::<f32>()
+                / (xb - xa) as f32
+        })
+        .collect();
+    let peak = energy.iter().cloned().fold(0.0f32, f32::max);
+    if peak < 2.0 {
+        return (y0, y1);
+    }
+    let thr = 0.12 * peak;
+    let n = energy.len() as i32;
+    // Seed at the strongest row inside the original box.
+    let (sy0, sy1) = (
+        ((y0 - lo as f32).max(0.0)) as i32,
+        ((y1 - lo as f32).ceil() as i32).min(n),
+    );
+    let Some(seed) = (sy0..sy1.max(sy0 + 1))
+        .filter(|&i| i < n)
+        .max_by(|&a, &b| energy[a as usize].total_cmp(&energy[b as usize]))
+    else {
+        return (y0, y1);
+    };
+    // Grow while rows still carry ink; two quiet rows in a row end the band.
+    let (mut top, mut bot) = (seed, seed);
+    let quiet = |i: i32| i < 0 || i >= n || energy[i as usize] < thr;
+    while !(quiet(top - 1) && quiet(top - 2)) && top > 0 {
+        top -= 1;
+    }
+    while !(quiet(bot + 1) && quiet(bot + 2)) && bot < n - 1 {
+        bot += 1;
+    }
+    while top < bot && quiet(top) {
+        top += 1;
+    }
+    while bot > top && quiet(bot) {
+        bot -= 1;
+    }
+    let ink_h = (bot - top + 1) as f32;
+    let margin = (0.2 * ink_h).clamp(1.5, 6.0);
+    let ny0 = (lo as f32 + top as f32 - margin).max(0.0);
+    let ny1 = (lo as f32 + bot as f32 + 1.0 + margin).min(h as f32);
+    if (ny0 - y0).abs() > 2.0 * MAX_SHIFT || (ny1 - y1).abs() > 2.0 * MAX_SHIFT || ny1 - ny0 < 4.0 {
+        return (y0, y1);
+    }
+    (ny0, ny1)
+}
+
 fn dist(a: [f32; 2], b: [f32; 2]) -> f32 {
     ((a[0] - b[0]).powi(2) + (a[1] - b[1]).powi(2)).sqrt()
 }
@@ -154,7 +245,10 @@ pub(crate) fn crop_quad(img: &RgbImage, quad: &[[f32; 2]; 4]) -> Option<RgbImage
         }
         imageops::crop_imm(img, x0, y0, x1 - x0, y1 - y0).to_image()
     } else {
-        let (ow, oh) = ((w.ceil() as u32).clamp(1, 8192), (h.ceil() as u32).clamp(1, 8192));
+        let (ow, oh) = (
+            ((w - 1e-3).ceil() as u32).clamp(1, 8192),
+            ((h - 1e-3).ceil() as u32).clamp(1, 8192),
+        );
         let mut out = RgbImage::new(ow, oh);
         for v in 0..oh {
             let fy = (v as f32 + 0.5) / oh as f32;
@@ -178,9 +272,17 @@ fn bilinear(img: &RgbImage, x: f32, y: f32) -> Rgb<u8> {
     let (w, h) = (img.width() as i32, img.height() as i32);
     let (x0, y0) = (x.floor(), y.floor());
     let (fx, fy) = (x - x0, y - y0);
-    let at = |xi: i32, yi: i32| img.get_pixel(xi.clamp(0, w - 1) as u32, yi.clamp(0, h - 1) as u32).0;
+    let at = |xi: i32, yi: i32| {
+        img.get_pixel(xi.clamp(0, w - 1) as u32, yi.clamp(0, h - 1) as u32)
+            .0
+    };
     let (xi, yi) = (x0 as i32, y0 as i32);
-    let (p00, p10, p01, p11) = (at(xi, yi), at(xi + 1, yi), at(xi, yi + 1), at(xi + 1, yi + 1));
+    let (p00, p10, p01, p11) = (
+        at(xi, yi),
+        at(xi + 1, yi),
+        at(xi, yi + 1),
+        at(xi + 1, yi + 1),
+    );
     let mut out = [0u8; 3];
     for c in 0..3 {
         let top = p00[c] as f32 * (1.0 - fx) + p10[c] as f32 * fx;
@@ -280,19 +382,92 @@ mod tests {
             for u in 0..40 {
                 let p = ax(u as f32 + 0.5, v as f32 + 0.5);
                 let col = if u < 6 { 0 } else { 255 };
-                img.put_pixel(p[0].floor() as u32, p[1].floor() as u32, Rgb([col, col, col]));
+                img.put_pixel(
+                    p[0].floor() as u32,
+                    p[1].floor() as u32,
+                    Rgb([col, col, col]),
+                );
             }
         }
         let q = [ax(0.0, 0.0), ax(40.0, 0.0), ax(40.0, 10.0), ax(0.0, 10.0)];
         let crop = crop_quad(&img, &q).unwrap();
         assert_eq!(crop.dimensions(), (40, 10));
         assert!(crop.get_pixel(2, 5).0[0] < 80, "left end should be dark");
-        assert!(crop.get_pixel(30, 5).0[0] > 150, "right part should be light");
+        assert!(
+            crop.get_pixel(30, 5).0[0] > 150,
+            "right part should be light"
+        );
 
         // Tall quad: result must be wider than tall.
         let q = [[10.0, 5.0], [20.0, 5.0], [20.0, 45.0], [10.0, 45.0]];
         let v = crop_quad(&img, &q).unwrap();
         assert_eq!(v.dimensions(), (40, 10));
+    }
+
+    /// A "text line": alternating dark/light columns over `rows`, white elsewhere.
+    fn striped_line(w: u32, h: u32, x0: u32, x1: u32, rows: std::ops::Range<u32>) -> RgbImage {
+        let mut img = RgbImage::from_pixel(w, h, Rgb([255, 255, 255]));
+        for y in rows {
+            for x in x0..x1 {
+                if (x / 2) % 2 == 0 {
+                    img.put_pixel(x, y, Rgb([0, 0, 0]));
+                }
+            }
+        }
+        img
+    }
+
+    #[test]
+    fn refine_recentres_a_shifted_box() {
+        let img = striped_line(120, 60, 10, 110, 20..35); // ink rows 20..=34 (15 rows)
+                                                          // Detector box 4 px too low: [24, 45].
+        let (y0, y1) = refine_vertical(&img, 10.0, 24.0, 110.0, 45.0);
+        assert!(
+            (y0 - 17.0).abs() <= 1.0 && (y1 - 38.0).abs() <= 1.0,
+            "{y0} {y1}"
+        );
+        // Box 3 px too high and too short (ink continues 4 px below it, the search bound).
+        let (y0, y1) = refine_vertical(&img, 10.0, 16.0, 110.0, 31.0);
+        assert!(
+            (y0 - 17.0).abs() <= 1.0 && (y1 - 38.0).abs() <= 1.0,
+            "{y0} {y1}"
+        );
+    }
+
+    #[test]
+    fn refine_keeps_a_good_box_and_ignores_far_neighbours() {
+        let mut img = striped_line(120, 90, 10, 110, 20..35);
+        // A second line starting 6 rows below the first one's last ink row stays out.
+        for y in 41..56 {
+            for x in 10..110 {
+                if (x / 2) % 2 == 0 {
+                    img.put_pixel(x, y, Rgb([0, 0, 0]));
+                }
+            }
+        }
+        let (y0, y1) = refine_vertical(&img, 10.0, 17.0, 110.0, 38.0);
+        assert!(
+            (y0 - 17.0).abs() <= 1.0 && (y1 - 38.0).abs() <= 1.0,
+            "{y0} {y1}"
+        );
+    }
+
+    #[test]
+    fn refine_handles_flat_gradient_and_edge_cases() {
+        // No ink at all: unchanged.
+        let blank = RgbImage::from_pixel(80, 40, Rgb([255, 255, 255]));
+        assert_eq!(refine_vertical(&blank, 5.0, 10.0, 70.0, 30.0), (10.0, 30.0));
+        // Smooth horizontal gradient only: unchanged (no strong edges).
+        let mut grad = RgbImage::new(200, 40);
+        for (x, _, p) in grad.enumerate_pixels_mut() {
+            *p = Rgb([(x / 2) as u8, 40, 100]);
+        }
+        assert_eq!(refine_vertical(&grad, 5.0, 10.0, 190.0, 30.0), (10.0, 30.0));
+        // Degenerate boxes do not panic.
+        assert_eq!(refine_vertical(&blank, 5.0, 10.0, 6.0, 12.0), (10.0, 12.0));
+        let near_edge = striped_line(120, 30, 10, 110, 0..12);
+        let (y0, _) = refine_vertical(&near_edge, 10.0, 0.0, 110.0, 16.0);
+        assert!(y0 >= 0.0);
     }
 
     #[test]

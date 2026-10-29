@@ -30,7 +30,11 @@ pub fn save_config(app: AppHandle, state: State<'_, AppState>, config: Config) -
     }
     if previous.general.autostart != config.general.autostart {
         let al = app.autolaunch();
-        let res = if config.general.autostart { al.enable() } else { al.disable() };
+        let res = if config.general.autostart {
+            al.enable()
+        } else {
+            al.disable()
+        };
         if let Err(e) = res {
             log::warn!("autostart toggle failed: {e}");
         }
@@ -45,28 +49,51 @@ pub fn get_session_snapshot(state: State<'_, AppState>) -> Option<SessionSnapsho
 }
 
 #[tauri::command]
-pub fn retranslate(
-    app: AppHandle,
-    text: String,
-    source_lang: String,
-    target_lang: String,
-) -> u64 {
+pub fn retranslate(app: AppHandle, text: String, source_lang: String, target_lang: String) -> u64 {
     pipeline::retranslate(&app, text, source_lang, target_lang)
 }
 
 #[tauri::command]
+pub fn retranslate_engine(
+    app: AppHandle,
+    session_id: u64,
+    engine_id: String,
+    text: String,
+    source_lang: String,
+    target_lang: String,
+) {
+    pipeline::retranslate_engine(&app, session_id, engine_id, text, source_lang, target_lang);
+}
+
+#[tauri::command]
+pub fn check_hotkey(app: AppHandle, accelerator: String) -> hotkeys::HotkeyStatus {
+    hotkeys::check(&app, &accelerator)
+}
+
+#[tauri::command]
+pub fn hotkeys_suspend(app: AppHandle, suspended: bool) -> CmdResult<()> {
+    hotkeys::set_suspended(&app, suspended).map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn test_engine(state: State<'_, AppState>, engine: EngineConfig) -> CmdResult<String> {
-    let translator =
-        glint_translate::build(&engine, &state.http).map_err(|e| e.user_message())?;
+    let translator = glint_translate::build(&engine, &state.http).map_err(|e| e.user_message())?;
     let target = state.config().translate.target_lang;
     let req = TranslateRequest {
         text: "Hello, world.".into(),
         source_lang: "en".into(),
-        target_lang: if target.starts_with("en") { "zh-Hans".into() } else { target },
+        target_lang: if target.starts_with("en") {
+            "zh-Hans".into()
+        } else {
+            target
+        },
         secondary_lang: None,
     };
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    translator.translate(&req, tx).await.map_err(|e| e.user_message())
+    translator
+        .translate(&req, tx)
+        .await
+        .map_err(|e| e.user_message())
 }
 
 #[tauri::command]
@@ -91,7 +118,11 @@ pub fn popup_resize(app: AppHandle, height: f64) {
 
 #[tauri::command]
 pub fn start_capture(app: AppHandle, mode: String) {
-    let mode = if mode == "ocr" { CaptureMode::Ocr } else { CaptureMode::Translate };
+    let mode = if mode == "ocr" {
+        CaptureMode::Ocr
+    } else {
+        CaptureMode::Translate
+    };
     // Let the invoking window (settings) get out of the way of the frozen frame.
     if let Some(w) = app.get_webview_window(settings::LABEL) {
         let _ = w.minimize();

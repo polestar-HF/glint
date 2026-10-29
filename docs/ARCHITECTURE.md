@@ -136,7 +136,7 @@ them with DPAPI is planned for later.
                 "engines": [ /* EngineConfig, display order */ ] },
   "ui":       { "theme": "system",                // "system" | "light" | "dark"
                 "fontSize": 14,
-                "accent": "#2F6FEB",
+                "accent": "#1E6AC5",
                 "closeOnBlur": true,
                 "popupIdleDestroySecs": 600 },
   "overlay":  { "snapWindows": true, "magnifier": true }
@@ -159,7 +159,7 @@ The `EngineConfig` fields are defined in `glint-translate/src/lib.rs`.
 - Magnifier: shown during drag and before dragging starts. A 120×120 logical px box at 8× zoom, pixel grid, crosshair, and a hex color line under it. It sits at the bottom-right of the cursor and flips at screen edges.
 - Cursor: crosshair.
 - No animations, which keeps the overlay instant.
-- Accent default `#2F6FEB`, overridable through `OverlayOptions.accent` (0xRRGGBB).
+- Accent default `#1E6AC5` (see DESIGN.md §3), overridable through `OverlayOptions.accent` (0xRRGGBB).
 
 ## Conventions
 
@@ -195,3 +195,34 @@ The `EngineConfig` fields are defined in `glint-translate/src/lib.rs`.
    - `select_region` returns `OverlayError::Window` if an overlay is already open in the process.
    - A `WM_QUIT` that arrives while the overlay is open cancels it, and is re-posted for the caller's loop.
    - The snapped window is shown undimmed, like a selection, with the 2 px accent outline and no tint. The UI engineer may want to confirm this in DESIGN.md.
+
+### ui (UI engineer)
+
+Items 1, 3, 4 and 5 are optional for the UI: it detects a missing command or field and falls back, as noted in each item.
+
+1. **New command `retranslate_engine(sessionId: u64, engineId: String, text: String, sourceLang: String, targetLang: String) -> ()`.** This is the per-engine "重试" on an error line. It re-runs one engine inside the *current* session and emits `tr:start`, then `tr:delta`*, then `tr:done` or `tr:error`, all with the same `sessionId`. Fallback: if the command is missing, the UI calls `retranslate`.
+2. **Clarification for `retranslate`.** Emit `session:start { sessionId: <new>, mode: "translate", sourceLang, targetLang }` before any `tr:*` event for the new id, and emit no `ocr:*` events. The popup keeps the edited text, and it copes if the event arrives before the command resolves.
+3. **`tr:delta` gains `seq: u32`.** This is a 0-based index per engine per session. Snapshot translations gain `deltaCount: u32`, the number of deltas already folded into `text`. Both are additive. They let the popup drop deltas that are replayed around `get_session_snapshot`, instead of guessing. Fallback: without them, the UI skips a replayed delta that the snapshot text already ends with, and `tr:done` reconciles.
+4. **New command `check_hotkey(accelerator: String) -> "ok" | "in_use" | "invalid"`.** It test-registers and immediately unregisters the shortcut, without saving. The settings key recorder calls it before committing a new shortcut, to catch shortcuts taken by other apps (QQ and WeChat use Ctrl+Alt+A, for example). Fallback: if the command is missing, the UI trusts its local validation.
+5. **New command `hotkeys_suspend(suspended: bool) -> ()`.** It unregisters Glint's global shortcuts while the key recorder is listening, and re-registers them afterwards. Without it, pressing the current shortcut in the recorder starts a capture. Resume automatically if the settings window closes while suspended.
+6. **Accelerator string format.** The UI writes `Ctrl+Alt+Shift+Super+<Key>`: modifiers in that order, then exactly one key named after `KeyboardEvent.code` without the `Key`, `Digit` or `Arrow` prefix. Keys are:
+   - `A`–`Z`, `0`–`9`, `F1`–`F24`
+   - `Space`, `PrintScreen`, `Pause`, `Insert`, `Delete`, `Home`, `End`, `PageUp`, `PageDown`
+   - `Up`, `Down`, `Left`, `Right`
+   - `Backquote`, `Minus`, `Equal`, `BracketLeft`, `BracketRight`, `Backslash`, `Semicolon`, `Quote`, `Comma`, `Period`, `Slash`
+   - `Numpad0`–`Numpad9`, `NumpadAdd`, and so on
+
+   The UI displays `Super` as "Win". An empty string means the shortcut is disabled. This is the syntax that `tauri-plugin-global-shortcut` / `global-hotkey` parses.
+7. **Default accent becomes `#1E6AC5`.** Change the `ui.accent` default in `config.rs`, and `OverlayOptions::default().accent` to `0x1E6AC5`. The rationale is in DESIGN.md §3. The overlay keeps using the stored value as is; the UI derives the dark-theme variant itself.
+8. **Value semantics.** `ocr.idleUnloadSecs = 0` and `ui.popupIdleDestroySecs = 0` mean "never". The UI offers 60 / 300 / 900 / 0 for the first and 60 / 600 / 1800 / 0 for the second.
+9. **`tr:error.message` and `ocr:error.message` should carry the short `TranslateError::user_message()`-style text.** The popup shows one ellipsized line, with the full text in a tooltip.
+10. **The popup never writes config.** Language changes in the popup apply to the current session only, through `retranslate`.
+11. **Window and CSP settings for `tauri.conf.json` and capabilities.** These are listed in DESIGN.md §12. They include popup `shadow: true` and `maximizable: false`, the Mica effect with `popup.html?mica=0` on Windows 10, `core:window:allow-set-theme`, and `tauri-plugin-opener` with `opener:allow-open-url` for the About links.
+
+### glint-ocr (OCR engineer)
+
+1. **`PaddleOcr::load(model_dir: &Path, opts: PaddleOptions) -> Result<Self>`** replaces `load(model_dir)`. `PaddleOptions::default()` is right for the app except `ort_dylib_path`, which the app must set to the absolute path of the shipped `onnxruntime.dll` (`<resource_dir>/onnxruntime.dll`); Windows 11 ships an older `onnxruntime.dll` in `System32`, and a path that is given but missing is an error, never a fallback. The DLL must be ONNX Runtime 1.31 or newer. ONNX Runtime is initialized once per process (the first load wins, including its path); load, drop (idle unload) and load again are safe and reuse it.
+2. **Cargo features of `glint-ocr`:** `default = ["ort-dynamic"]` (runtime loading, no build-time download) and opt-in `ort-static` (`ort`'s `download-binaries`; on Windows that is the DirectML build, which also adds load-time imports of `DirectML.dll`/`d3d12.dll`/`dxgi.dll`). Do not enable both. With neither, `PaddleOcr::load` returns `OcrError::Unsupported`.
+3. **Model directory:** `det.onnx` and `rec.onnx` (PP-OCRv6 small from the `rapidocr==3.10.0` wheel, renamed), optional `cls.onnx` (only read with `PaddleOptions::use_angle_cls`), optional `dict.txt` (only used if `rec.onnx` has no embedded `character` metadata; the v6 model has one).
+4. **Result semantics:** `OcrResult.lines` are in reading order with normalized text; `text` joins paragraphs (or, with `merge_lines = false`, lines) with a single `\n`; `detected_lang` is one of `zh ja ko en fr de es pt it vi ru th ar`, or `None` when the text has no letters; `engine` is `"paddle"` or `"windows"`. `OcrOptions::lang_hint` is ignored by `PaddleOcr` (the multilingual model needs none) and selects the language pack for `WindowsOcr`. `WindowsOcr` reports `confidence = 1.0` (the API gives none) and must be called from a worker thread, not an STA/UI thread.
+5. **Additive items:** `PaddleOptions`, `Timings` and `PaddleOcr::recognize_timed`, `WindowsOcr::{available_languages, language}`, the `postprocess` module, and `glint_ocr::trim_process_memory()`. Call the last one after dropping the engine on idle unload: glibc and Windows keep freed pages in the process until trimmed (measured on Linux: 85 MB resident after drop, 40 MB after trimming).

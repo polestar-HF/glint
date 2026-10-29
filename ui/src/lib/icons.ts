@@ -33,7 +33,7 @@ export const icons = {
     ),
   },
   close: { parts: s('M4.25 4.25l7.5 7.5', 'M11.75 4.25l-7.5 7.5') },
-  pin: { parts: s('M5.75 2.75h4.5', pinBody, 'M8 9.25v4'), rotate: 45 },
+  pin: { parts: s('M5.75 2.75h4.5', pinBody, 'M8 9.25v4') },
   'pin-filled': { parts: [{ d: pinBody + 'Z', f: true }, ...s('M5.75 2.75h4.5', pinBody + 'Z', 'M8 9.25v4')] },
   check: { parts: s('M3.5 8.25 6.5 11.25 12.5 4.75') },
   alert: { parts: [...s(circle, 'M8 4.75v3.75'), dot(8, 11)] },

@@ -107,14 +107,9 @@
 <style>
   .accent-row {
     display: flex;
-    align-items: center;
-    gap: 24px;
-    padding: 12px 16px;
-    flex-wrap: wrap;
-  }
-  .accent-head {
-    flex: 1 1 160px;
-    min-width: 0;
+    flex-direction: column;
+    gap: 12px;
+    padding: 10px 16px 14px;
   }
   .title {
     font-size: 14px;

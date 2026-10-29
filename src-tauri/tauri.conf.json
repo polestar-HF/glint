@@ -5,7 +5,7 @@
   "identifier": "app.glint.desktop",
   "build": {
     "frontendDist": "../ui/dist",
-    "devUrl": "http://localhost:5173",
+    "devUrl": "http://localhost:1420",
     "beforeDevCommand": { "script": "npm run dev", "cwd": "../ui", "wait": false },
     "beforeBuildCommand": { "script": "npm run build", "cwd": "../ui" }
   },
@@ -13,7 +13,7 @@
     "windows": [],
     "withGlobalTauri": false,
     "security": {
-      "csp": "default-src 'self' ipc: http://ipc.localhost; style-src 'self' 'unsafe-inline'; img-src 'self' data:"
+      "csp": "default-src 'self' ipc: http://ipc.localhost; script-src 'self'; style-src 'self'; img-src 'self' data:"
     }
   },
   "bundle": {

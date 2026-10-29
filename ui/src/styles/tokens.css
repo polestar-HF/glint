@@ -11,8 +11,6 @@
   --accent-base: #1e6ac5;
   --accent: light-dark(var(--accent-base), oklch(from var(--accent-base) 0.76 calc(c * 0.72) h));
   --accent-hover: color-mix(in srgb, var(--accent) 90%, transparent);
-  --accent-pressed: color-mix(in srgb, var(--accent) 80%, transparent);
-  --accent-subtle: color-mix(in srgb, var(--accent) 12%, transparent);
   --on-accent: light-dark(#ffffff, #000000);
 
   /* ── Surfaces ─────────────────────────────────────────────────────────────
@@ -53,7 +51,7 @@
   /* ── Status ───────────────────────────────────────────────────────────── */
   --critical: light-dark(#c42b1c, #ff99a4);
   --success: light-dark(#0f7b0f, #6ccb5f);
-  --caution: light-dark(#9d5d00, #fce100);
+  --caution: light-dark(#9d5d00, #e3b341);
 
   /* ── Type (families: see the [lang] block below) ─────────────────────── */
   --font-cjk: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Yu Gothic UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;

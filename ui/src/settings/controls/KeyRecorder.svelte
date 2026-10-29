@@ -28,7 +28,7 @@
   function start() {
     recording = true;
     held = null;
-    say(null);
+    say({ key: 'recorder.hint' }, 'info');
     // While recording, the app's own global shortcuts must not fire.
     api.suspendHotkeys(true).catch(() => {});
   }
@@ -37,6 +37,7 @@
     if (!recording) return;
     recording = false;
     held = null;
+    say(null);
     api.suspendHotkeys(false).catch(() => {});
   }
 
@@ -116,7 +117,6 @@
     class:recording
     title={t('recorder.edit')}
     aria-labelledby={labelledby}
-    aria-describedby={recording ? 'rec-hint' : undefined}
     onclick={() => (recording ? null : start())}
     {onkeydown}
     {onkeyup}
@@ -136,9 +136,6 @@
     {/if}
   </button>
 </div>
-{#if recording}
-  <span id="rec-hint" class="visually-hidden">{t('recorder.hint')}</span>
-{/if}
 
 <style>
   .recorder-wrap {
@@ -149,11 +146,11 @@
   .recorder {
     display: inline-flex;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: flex-start;
     gap: 6px;
-    min-width: 168px;
+    min-width: 176px;
     height: 32px;
-    padding: 0 6px 0 12px;
+    padding: 0 12px 0 5px;
     border-radius: var(--r-sm);
     border: 1px solid var(--stroke-control);
     border-bottom-color: var(--stroke-control-bottom);
@@ -164,7 +161,6 @@
     background-color: var(--bg-control-hover);
   }
   .recorder.recording {
-    justify-content: flex-start;
     background: var(--bg-control-input);
     border-bottom-color: var(--accent);
     box-shadow: inset 0 -1px 0 var(--accent);
@@ -174,13 +170,10 @@
   }
   .placeholder {
     flex: 1;
+    padding-left: 7px;
     text-align: left;
     color: var(--text-3);
     font-size: 13px;
-  }
-  .recorder:not(.recording) .placeholder {
-    text-align: right;
-    padding-right: 6px;
   }
   .ellipsis {
     color: var(--text-3);

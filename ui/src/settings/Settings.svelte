@@ -119,7 +119,9 @@
     </nav>
 
     <main class="page" bind:this={pageEl}>
-      <h1 class="page-title">{t(section.label)}</h1>
+      {#if current !== 'about'}
+        <h1 class="page-title">{t(section.label)}</h1>
+      {/if}
       {#if store.config}
         <Current />
       {/if}

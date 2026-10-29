@@ -11,11 +11,14 @@ use image::RgbaImage;
 use serde::Serialize;
 
 mod imgproc;
+mod lang;
+mod mem;
 mod paddle;
 pub mod postprocess;
 #[cfg(windows)]
 mod windows_ocr;
 
+pub use mem::trim_process_memory;
 pub use paddle::{PaddleOcr, PaddleOptions, Timings};
 #[cfg(windows)]
 pub use windows_ocr::WindowsOcr;
@@ -51,7 +54,10 @@ pub struct OcrOptions {
 
 impl Default for OcrOptions {
     fn default() -> Self {
-        Self { merge_lines: true, lang_hint: "auto".into() }
+        Self {
+            merge_lines: true,
+            lang_hint: "auto".into(),
+        }
     }
 }
 

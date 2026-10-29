@@ -7,12 +7,13 @@
     desc?: string;
     id?: string;
     message?: { text: string; tone: 'error' | 'info' } | null;
+    compact?: boolean;
     children?: Snippet;
   }
-  let { title, desc, id, message = null, children }: Props = $props();
+  let { title, desc, id, message = null, compact = false, children }: Props = $props();
 </script>
 
-<div class="row">
+<div class="row" class:compact>
   <div class="row-text">
     <div class="row-title" {id}>{title}</div>
     {#if desc}<div class="row-desc">{desc}</div>{/if}
@@ -35,6 +36,10 @@
     gap: 24px;
     min-height: 56px;
     padding: 10px 16px;
+  }
+  .row.compact {
+    min-height: 44px;
+    padding-block: 6px;
   }
   .row-text {
     flex: 1 1 auto;

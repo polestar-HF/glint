@@ -144,8 +144,9 @@ export class Session {
 
   trStart(p: TrStart) {
     if (!this.gate(p.sessionId)) return;
+    // Keep the localized / user-renamed name from config when we already have one.
     const r = this.result(p.engineId, p.engineName);
-    r.engineName = p.engineName || r.engineName;
+    r.engineName = r.engineName || p.engineName;
     // A replayed start must not wipe text that is already streaming in.
     if (r.status === 'streaming' || r.status === 'done') return;
     r.status = 'pending';

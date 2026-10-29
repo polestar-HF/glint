@@ -7,11 +7,13 @@
     source: string;
     target: string;
     detected: string | null;
+    /** Where to translate to when a swap would otherwise produce X → X (the configured target). */
+    fallback: string;
     onchange: (source: string, target: string) => void;
     /** Reports how tall the window must be while the menu is open (0 when closed). */
     onneed: (px: number) => void;
   }
-  let { source, target, detected, onchange, onneed }: Props = $props();
+  let { source, target, detected, fallback, onchange, onneed }: Props = $props();
 
   let open = $state<'source' | 'target' | null>(null);
   let menuEl = $state<HTMLDivElement>();
@@ -37,7 +39,8 @@
     close();
     if (which === 'source' && code !== source) {
       // Picking the target language as source swaps the pair instead of producing en → en.
-      onchange(code, code === target ? (source === 'auto' ? (detected ?? target) : source) : target);
+      const prev = source === 'auto' ? detected : source;
+      onchange(code, code === target ? (prev && prev !== code ? prev : fallback) : target);
     } else if (which === 'target' && code !== target) {
       onchange(code === source ? target : source, code);
     }
@@ -46,7 +49,8 @@
   function swap() {
     if (!canSwap) return;
     const from = source === 'auto' ? detected! : source;
-    onchange(target, from);
+    // Detected language already equals the target: swapping would give X → X.
+    onchange(target, from === target ? fallback : from);
   }
 
   $effect(() => {

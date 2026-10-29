@@ -23,7 +23,12 @@ pub struct OcrService {
 
 impl OcrService {
     pub fn new(model_dir: PathBuf, ort_dylib: PathBuf) -> Self {
-        Self { model_dir, ort_dylib, slot: Mutex::new(None), load_lock: Mutex::new(()) }
+        Self {
+            model_dir,
+            ort_dylib,
+            slot: Mutex::new(None),
+            load_lock: Mutex::new(()),
+        }
     }
 
     /// Return the engine for `kind`, loading it if needed. Blocking; call off the UI thread.
@@ -38,8 +43,11 @@ impl OcrService {
         let started = Instant::now();
         let engine = self.load(kind)?;
         log::info!("ocr engine '{kind}' loaded in {:?}", started.elapsed());
-        *self.slot.lock().unwrap_or_else(|p| p.into_inner()) =
-            Some(Loaded { kind: kind.to_string(), engine: engine.clone(), last_used: Instant::now() });
+        *self.slot.lock().unwrap_or_else(|p| p.into_inner()) = Some(Loaded {
+            kind: kind.to_string(),
+            engine: engine.clone(),
+            last_used: Instant::now(),
+        });
         Ok(engine)
     }
 

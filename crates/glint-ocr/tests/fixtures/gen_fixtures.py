@@ -64,13 +64,12 @@ zh = [
 render("zh_paragraph", zh, WQY, 18, (600, 108), (250, 250, 247), (30, 30, 30), 8)
 cases["zh_paragraph"] = dict(lines=zh, expected="".join(zh), lang="zh")
 
-# 3. Japanese with kana.
-ja = [
-    "スクリーンショットから文字を読み取り、すぐに翻訳します。",
-    "ひらがなとカタカナ、そして漢字が混ざった文章でも認識できます。",
-]
+# 3. Japanese with kana, wrapped at a fixed number of characters like real CJK layout.
+ja_text = ("スクリーンショットから文字を読み取り、すぐに翻訳します。"
+           "ひらがなとカタカナ、そして漢字が混ざった文章でも認識できます。")
+ja = [ja_text[i:i + 30] for i in range(0, len(ja_text), 30)]
 render("ja_kana", ja, IPA, 18, (600, 84), (255, 255, 255), (20, 20, 20), 8)
-cases["ja_kana"] = dict(lines=ja, expected="".join(ja), lang="ja")
+cases["ja_kana"] = dict(lines=ja, expected=ja_text, lang="ja")
 
 # 4. Mixed Chinese / English.
 mixed = [

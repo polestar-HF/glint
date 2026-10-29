@@ -37,6 +37,8 @@ pub struct TranslationState {
     pub engine_name: String,
     pub status: Status,
     pub text: String,
+    /// Number of `tr:delta` events already folded into `text` (lets the popup drop replays).
+    pub delta_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -61,13 +63,19 @@ impl SessionSnapshot {
             mode,
             source_lang,
             target_lang,
-            ocr: OcrState { status: Status::Pending, result: None, message: None },
+            ocr: OcrState {
+                status: Status::Pending,
+                result: None,
+                message: None,
+            },
             translations: Vec::new(),
         }
     }
 
     pub fn translation_mut(&mut self, engine_id: &str) -> Option<&mut TranslationState> {
-        self.translations.iter_mut().find(|t| t.engine_id == engine_id)
+        self.translations
+            .iter_mut()
+            .find(|t| t.engine_id == engine_id)
     }
 }
 
@@ -112,6 +120,8 @@ pub struct TrDelta {
     pub session_id: u64,
     pub engine_id: String,
     pub delta: String,
+    /// 0-based index per engine per session.
+    pub seq: u32,
 }
 
 #[derive(Debug, Clone, Serialize)]

@@ -36,6 +36,7 @@ pub struct AppState {
     pub popup_hide_gen: AtomicU64,
     pub popup_anchor: Mutex<Option<popup::Anchor>>,
     pub hotkey_bindings: Mutex<Vec<(Shortcut, CaptureMode)>>,
+    pub hotkeys_suspended: AtomicBool,
     session_counter: AtomicU64,
     session: Mutex<Option<SessionSnapshot>>,
     session_task: Mutex<Option<JoinHandle<()>>>,
@@ -43,7 +44,10 @@ pub struct AppState {
 
 impl AppState {
     pub fn config(&self) -> Config {
-        self.config.read().unwrap_or_else(|p| p.into_inner()).clone()
+        self.config
+            .read()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     fn set_config(&self, cfg: Config) {
@@ -59,20 +63,37 @@ impl AppState {
     }
 
     pub fn session_snapshot(&self) -> Option<SessionSnapshot> {
-        self.session.lock().unwrap_or_else(|p| p.into_inner()).clone()
+        self.session
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .clone()
     }
 
     /// Apply `f` only if `session_id` is still the current session.
-    pub fn update_session(&self, session_id: u64, f: impl FnOnce(&mut SessionSnapshot)) {
+    pub fn update_session<R>(
+        &self,
+        session_id: u64,
+        f: impl FnOnce(&mut SessionSnapshot) -> R,
+    ) -> Option<R> {
         let mut guard = self.session.lock().unwrap_or_else(|p| p.into_inner());
-        if let Some(s) = guard.as_mut().filter(|s| s.session_id == session_id) {
-            f(s);
-        }
+        guard.as_mut().filter(|s| s.session_id == session_id).map(f)
+    }
+
+    pub fn is_current_session(&self, session_id: u64) -> bool {
+        self.session
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .as_ref()
+            .is_some_and(|s| s.session_id == session_id)
     }
 
     /// A new session supersedes the old one: abort its OCR/translation work.
     pub fn replace_session_task(&self, task: JoinHandle<()>) {
-        if let Some(old) = self.session_task.lock().unwrap_or_else(|p| p.into_inner()).replace(task)
+        if let Some(old) = self
+            .session_task
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .replace(task)
         {
             old.abort();
         }
@@ -81,10 +102,12 @@ impl AppState {
 
 pub fn run() {
     tauri::Builder::default()
-        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| settings::open(app)))
+        .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            settings::open(app)
+        }))
         .plugin(
             tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, shortcut, event| hotkeys::handle(app, shortcut, event))
+                .with_handler(hotkeys::handle)
                 .build(),
         )
         .plugin(tauri_plugin_autostart::init(
@@ -92,6 +115,7 @@ pub fn run() {
             Some(vec!["--background"]),
         ))
         .plugin(tauri_plugin_clipboard_manager::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(
             tauri_plugin_log::Builder::new()
                 .level(log::LevelFilter::Info)
@@ -123,6 +147,7 @@ pub fn run() {
                 popup_hide_gen: AtomicU64::new(0),
                 popup_anchor: Mutex::new(None),
                 hotkey_bindings: Mutex::new(Vec::new()),
+                hotkeys_suspended: AtomicBool::new(false),
                 session_counter: AtomicU64::new(0),
                 session: Mutex::new(None),
                 session_task: Mutex::new(None),
@@ -147,6 +172,9 @@ pub fn run() {
             commands::save_config,
             commands::get_session_snapshot,
             commands::retranslate,
+            commands::retranslate_engine,
+            commands::check_hotkey,
+            commands::hotkeys_suspend,
             commands::test_engine,
             commands::copy_text,
             commands::popup_set_pinned,
@@ -159,7 +187,10 @@ pub fn run() {
         .expect("failed to build Glint")
         .run(|_app, event| {
             // Tray app: closing the last window must not quit.
-            if let tauri::RunEvent::ExitRequested { api, code: None, .. } = event {
+            if let tauri::RunEvent::ExitRequested {
+                api, code: None, ..
+            } = event
+            {
                 api.prevent_exit();
             }
         });

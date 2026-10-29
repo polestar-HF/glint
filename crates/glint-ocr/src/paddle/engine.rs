@@ -8,8 +8,8 @@ use std::{
 };
 
 use ort::{
-    ep,
     environment::Environment,
+    ep,
     session::{builder::GraphOptimizationLevel, Session},
     value::Tensor,
 };
@@ -40,8 +40,12 @@ fn environment(opts: &PaddleOptions) -> Result<Environment> {
 fn init_builder(opts: &PaddleOptions) -> Result<ort::environment::EnvironmentBuilder> {
     let path = resolve_dylib(opts)?;
     log::info!("loading ONNX Runtime from {}", path.display());
-    ort::init_from(&path)
-        .map_err(|e| OcrError::Load(format!("cannot load ONNX Runtime from {}: {e}", path.display())))
+    ort::init_from(&path).map_err(|e| {
+        OcrError::Load(format!(
+            "cannot load ONNX Runtime from {}: {e}",
+            path.display()
+        ))
+    })
 }
 
 #[cfg(not(feature = "ort-dynamic"))]
@@ -56,7 +60,9 @@ fn init_builder(_opts: &PaddleOptions) -> Result<ort::environment::EnvironmentBu
 /// `onnxruntime.dll`.
 #[cfg(feature = "ort-dynamic")]
 fn resolve_dylib(opts: &PaddleOptions) -> Result<PathBuf> {
-    let exe_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(Path::to_path_buf));
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(Path::to_path_buf));
     let explicit = |p: PathBuf, what: &str| -> Result<PathBuf> {
         if p.is_file() {
             return Ok(p);
@@ -66,7 +72,10 @@ fn resolve_dylib(opts: &PaddleOptions) -> Result<PathBuf> {
                 return Ok(joined);
             }
         }
-        Err(OcrError::Load(format!("ONNX Runtime library given by {what} not found: {}", p.display())))
+        Err(OcrError::Load(format!(
+            "ONNX Runtime library given by {what} not found: {}",
+            p.display()
+        )))
     };
     if let Some(p) = &opts.ort_dylib_path {
         return explicit(p.clone(), "PaddleOptions::ort_dylib_path");
@@ -74,7 +83,11 @@ fn resolve_dylib(opts: &PaddleOptions) -> Result<PathBuf> {
     if let Some(v) = std::env::var_os("ORT_DYLIB_PATH").filter(|v| !v.is_empty()) {
         return explicit(PathBuf::from(v), "ORT_DYLIB_PATH");
     }
-    let name = format!("{}onnxruntime{}", std::env::consts::DLL_PREFIX, std::env::consts::DLL_SUFFIX);
+    let name = format!(
+        "{}onnxruntime{}",
+        std::env::consts::DLL_PREFIX,
+        std::env::consts::DLL_SUFFIX
+    );
     if let Some(p) = exe_dir.map(|d| d.join(&name)).filter(|p| p.is_file()) {
         return Ok(p);
     }
@@ -134,12 +147,19 @@ impl Engine {
             if p.is_file() {
                 Ok(p)
             } else {
-                Err(OcrError::Load(format!("model file not found: {}", p.display())))
+                Err(OcrError::Load(format!(
+                    "model file not found: {}",
+                    p.display()
+                )))
             }
         };
         let det_path = need("det.onnx")?;
         let rec_path = need("rec.onnx")?;
-        let cls_path = if opts.use_angle_cls { Some(need("cls.onnx")?) } else { None };
+        let cls_path = if opts.use_angle_cls {
+            Some(need("cls.onnx")?)
+        } else {
+            None
+        };
 
         let env = environment(opts)?;
         let threads = opts.intra_threads.unwrap_or_else(default_threads).max(1);
@@ -161,7 +181,12 @@ impl Engine {
                 dict.classes() - 2
             )));
         }
-        let name_of = |s: &Session| s.inputs().first().map(|i| i.name().to_string()).unwrap_or_else(|| "x".into());
+        let name_of = |s: &Session| {
+            s.inputs()
+                .first()
+                .map(|i| i.name().to_string())
+                .unwrap_or_else(|| "x".into())
+        };
         Ok(Self {
             det_in: name_of(&det),
             rec_in: name_of(&rec),
@@ -175,12 +200,17 @@ impl Engine {
 
     /// Runs the detector on a `[1, 3, h, w]` input and returns the `h * w` probability map.
     pub fn run_det(&self, data: Vec<f32>, h: usize, w: usize) -> Result<Vec<f32>> {
-        let input = Tensor::from_array(([1usize, 3, h, w], data.into_boxed_slice())).map_err(infer_err)?;
+        let input =
+            Tensor::from_array(([1usize, 3, h, w], data.into_boxed_slice())).map_err(infer_err)?;
         let mut s = self.det.lock().unwrap_or_else(PoisonError::into_inner);
-        let outputs = s.run(ort::inputs![self.det_in.as_str() => input]).map_err(infer_err)?;
+        let outputs = s
+            .run(ort::inputs![self.det_in.as_str() => input])
+            .map_err(infer_err)?;
         let (shape, out) = outputs[0].try_extract_tensor::<f32>().map_err(infer_err)?;
         if out.len() != h * w {
-            return Err(OcrError::Inference(format!("detector output {shape} does not match input {h}x{w}")));
+            return Err(OcrError::Inference(format!(
+                "detector output {shape} does not match input {h}x{w}"
+            )));
         }
         Ok(out.to_vec())
     }
@@ -194,12 +224,17 @@ impl Engine {
         w: usize,
         f: impl FnOnce(&[f32], usize, usize, usize) -> R,
     ) -> Result<R> {
-        let input = Tensor::from_array(([n, 3, super::rec::REC_H, w], data.into_boxed_slice())).map_err(infer_err)?;
+        let input = Tensor::from_array(([n, 3, super::rec::REC_H, w], data.into_boxed_slice()))
+            .map_err(infer_err)?;
         let mut s = self.rec.lock().unwrap_or_else(PoisonError::into_inner);
-        let outputs = s.run(ort::inputs![self.rec_in.as_str() => input]).map_err(infer_err)?;
+        let outputs = s
+            .run(ort::inputs![self.rec_in.as_str() => input])
+            .map_err(infer_err)?;
         let (shape, out) = outputs[0].try_extract_tensor::<f32>().map_err(infer_err)?;
         if shape.len() != 3 || shape[0] as usize != n {
-            return Err(OcrError::Inference(format!("unexpected recognizer output shape {shape}")));
+            return Err(OcrError::Inference(format!(
+                "unexpected recognizer output shape {shape}"
+            )));
         }
         let (t, c) = (shape[1] as usize, shape[2] as usize);
         Ok(f(out, n, t, c))
@@ -207,13 +242,20 @@ impl Engine {
 
     /// Runs the angle classifier on `[n, 3, 48, 192]`; returns `[p_0deg, p_180deg]` per item.
     pub fn run_cls(&self, data: Vec<f32>, n: usize) -> Result<Vec<[f32; 2]>> {
-        let Some(cls) = &self.cls else { return Err(OcrError::Inference("angle classifier not loaded".into())) };
-        let input = Tensor::from_array(([n, 3, 48usize, 192usize], data.into_boxed_slice())).map_err(infer_err)?;
+        let Some(cls) = &self.cls else {
+            return Err(OcrError::Inference("angle classifier not loaded".into()));
+        };
+        let input = Tensor::from_array(([n, 3, 48usize, 192usize], data.into_boxed_slice()))
+            .map_err(infer_err)?;
         let mut s = cls.lock().unwrap_or_else(PoisonError::into_inner);
-        let outputs = s.run(ort::inputs![self.cls_in.as_str() => input]).map_err(infer_err)?;
+        let outputs = s
+            .run(ort::inputs![self.cls_in.as_str() => input])
+            .map_err(infer_err)?;
         let (shape, out) = outputs[0].try_extract_tensor::<f32>().map_err(infer_err)?;
         if out.len() != n * 2 {
-            return Err(OcrError::Inference(format!("unexpected classifier output shape {shape}")));
+            return Err(OcrError::Inference(format!(
+                "unexpected classifier output shape {shape}"
+            )));
         }
         Ok(out.chunks_exact(2).map(|p| [p[0], p[1]]).collect())
     }
@@ -226,13 +268,19 @@ impl Engine {
 /// Dictionary from the recognizer's `character` metadata (RapidOCR / PP-OCRv6 models embed it),
 /// else from `dict.txt` (or `ppocr_keys_v1.txt`) in the model directory.
 fn load_dict(rec: &Session, model_dir: &Path) -> Result<Dict> {
-    if let Some(meta) = rec.metadata().ok().and_then(|m| m.custom("character")).filter(|s| !s.is_empty()) {
+    if let Some(meta) = rec
+        .metadata()
+        .ok()
+        .and_then(|m| m.custom("character"))
+        .filter(|s| !s.is_empty())
+    {
         return Dict::from_metadata(&meta);
     }
     for name in ["dict.txt", "ppocr_keys_v1.txt"] {
         let p = model_dir.join(name);
         if p.is_file() {
-            let text = std::fs::read_to_string(&p).map_err(load_err(&format!("reading {}", p.display())))?;
+            let text = std::fs::read_to_string(&p)
+                .map_err(load_err(&format!("reading {}", p.display())))?;
             return Dict::from_file_text(&text);
         }
     }

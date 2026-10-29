@@ -266,7 +266,7 @@ function freezeFor(s: string): number | null {
     case 'recognizing':
       return 100;
     case 'pending':
-      return 250;
+      return 262;
     case 'streaming':
       return 640;
     case 'live':

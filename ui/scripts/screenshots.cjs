@@ -65,6 +65,7 @@ const popupScenes = [
   { name: 'popup-ocr', q: 'scene=ocr' },
   { name: 'popup-langmenu', q: 'scene=done', click: '.lang-btn >> nth=1' },
   { name: 'popup-edited', q: 'scene=done', edit: true },
+  { name: 'popup-pinned-collapsed-toast', q: 'scene=error', pinCopy: true },
   { name: 'popup-notext', q: 'scene=notext' },
   { name: 'popup-mica', q: 'scene=error&mica' },
 ];
@@ -102,9 +103,17 @@ async function main() {
             await page.click(s.click);
             await page.waitForTimeout(250);
           }
+          if (s.pinCopy) {
+            await page.keyboard.press('Control+KeyP');
+            await page.click('.result >> nth=1 >> [aria-expanded]');
+            await page.click('.result >> nth=0');
+            await page.keyboard.press('Control+KeyC');
+            await page.mouse.move(0, 0);
+            await page.waitForTimeout(200);
+          }
           if (s.edit) {
             await page.click('textarea.src-text');
-            await page.keyboard.press('End');
+            await page.keyboard.press('Control+End');
             await page.keyboard.type(' Labels matter.');
             await page.mouse.move(0, 0);
           }

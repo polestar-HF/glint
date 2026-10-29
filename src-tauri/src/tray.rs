@@ -28,7 +28,13 @@ pub fn create(app: &AppHandle) -> tauri::Result<()> {
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(
         app,
-        &[&translate, &ocr, &PredefinedMenuItem::separator(app)?, &settings_item, &quit],
+        &[
+            &translate,
+            &ocr,
+            &PredefinedMenuItem::separator(app)?,
+            &settings_item,
+            &quit,
+        ],
     )?;
 
     let mut builder = TrayIconBuilder::with_id("main")

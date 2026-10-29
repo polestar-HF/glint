@@ -27,6 +27,12 @@
   let contentEl = $state<HTMLElement>();
   let footerEl = $state<HTMLElement>();
 
+  // Target to fall back to when a swap would translate a language into itself.
+  const langFallback = $derived.by(() => {
+    const tr = config?.translate;
+    if (!tr) return s.targetLang === 'en' ? 'zh-Hans' : 'en';
+    return tr.targetLang !== s.targetLang ? tr.targetLang : tr.secondaryLang;
+  });
   const contentLang = $derived(htmlLang(s.sourceLang === 'auto' ? s.detectedLang : s.sourceLang));
   const sourceMeta = $derived.by(() => {
     if (s.ocrStatus === 'pending') return t('popup.recognizing');
@@ -286,13 +292,14 @@
   {/if}
 {/snippet}
 
-<div class="popup" class:ocr={s.mode === 'ocr'} bind:this={rootEl}>
+<div class="popup" class:ocr={s.mode === 'ocr'} class:stale={s.dirty} bind:this={rootEl}>
   <header class="strip" data-tauri-drag-region bind:this={stripEl}>
     {#if s.mode === 'translate'}
       <LangPicker
         source={s.sourceLang}
         target={s.targetLang}
         detected={s.detectedLang}
+        fallback={langFallback}
         onchange={changeLangs}
         onneed={(px) => (menuNeed = px)}
       />

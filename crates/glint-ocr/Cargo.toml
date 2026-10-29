@@ -39,4 +39,8 @@ windows = { workspace = true, features = [
     "Storage_Streams",
     "Foundation",
     "Foundation_Collections",
+    # apartment init for the worker thread, and the working-set trim in `trim_process_memory`
+    "Win32_System_WinRT",
+    "Win32_System_Threading",
+    "Win32_Foundation",
 ] }

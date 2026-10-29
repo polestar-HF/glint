@@ -37,29 +37,29 @@
   function grab(ev: PointerEvent, id: string) {
     if (ev.button !== 0 || !listEl) return;
     ev.preventDefault();
-    const grip = ev.currentTarget as HTMLElement;
-    grip.setPointerCapture(ev.pointerId);
+    (ev.currentTarget as HTMLElement).focus();
     dragId = id;
     const onMove = (m: PointerEvent) => {
-      const rows = Array.from(listEl!.querySelectorAll<HTMLElement>('[data-engine-row]'));
+      // offsetTop ignores the FLIP transforms, so hit-testing stays right mid-animation.
+      const rows = Array.from(listEl!.querySelectorAll<HTMLElement>('.slot'));
+      const y = m.clientY - listEl!.getBoundingClientRect().top;
       const from = c.translate.engines.findIndex((e) => e.id === dragId);
-      let to = rows.findIndex((r) => {
-        const b = r.getBoundingClientRect();
-        return m.clientY < b.top + b.height / 2;
-      });
+      let to = rows.findIndex((r) => y < r.offsetTop + r.offsetHeight / 2);
       if (to === -1) to = rows.length - 1;
       else if (to > from) to -= 1;
       if (to !== from) move(from, to);
     };
+    // Listen on window, not with pointer capture on the grip: the keyed list moves the
+    // row's DOM node while reordering, which would silently drop the capture.
     const onUp = () => {
       dragId = null;
-      grip.removeEventListener('pointermove', onMove);
-      grip.removeEventListener('pointerup', onUp);
-      grip.removeEventListener('pointercancel', onUp);
+      window.removeEventListener('pointermove', onMove);
+      window.removeEventListener('pointerup', onUp);
+      window.removeEventListener('pointercancel', onUp);
     };
-    grip.addEventListener('pointermove', onMove);
-    grip.addEventListener('pointerup', onUp);
-    grip.addEventListener('pointercancel', onUp);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    window.addEventListener('pointercancel', onUp);
   }
 </script>
 
@@ -99,6 +99,9 @@
 </Group>
 
 <style>
+  .engines {
+    position: relative;
+  }
   .slot + .slot {
     border-top: 1px solid var(--stroke-divider);
   }

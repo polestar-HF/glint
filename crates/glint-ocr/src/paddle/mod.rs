@@ -40,11 +40,17 @@ use std::{
 use image::{imageops, RgbImage, RgbaImage};
 
 use crate::{
-    imgproc::{background_color, centered_canvas, crop_quad, resize, rgba_to_rgb, round_up, write_bgr_planar},
+    imgproc::{
+        background_color, centered_canvas, crop_quad, refine_vertical, resize, rgba_to_rgb,
+        round_up, write_bgr_planar,
+    },
     postprocess, OcrEngine, OcrError, OcrLine, OcrOptions, OcrResult, Result,
 };
 use det::{db_boxes, DetBox, DetParams};
 use rec::{ctc_decode, plan_batches, rec_width, Decoded, REC_H};
+
+/// Box corners `[tl, tr, br, bl]` as `[x, y]`.
+type Quad = [[f32; 2]; 4];
 
 /// Tuning knobs for [`PaddleOcr`]. The defaults are what the app uses.
 #[derive(Debug, Clone)]
@@ -71,13 +77,16 @@ pub struct PaddleOptions {
     pub det_unclip_ratio: f32,
     /// Repeat detection at 2x when nothing, or only very small boxes, was found.
     pub retry_upscaled: bool,
-    /// Maximum lines per recognizer batch (1 disables batching).
+    /// Maximum lines per recognizer batch (1 disables batching). Batching is compute-neutral on
+    /// CPU but costs memory, so with the default area budget only short lines share a batch.
     pub rec_batch: usize,
-    /// Minimum padded width of a recognizer input (PP-OCR uses 320).
+    /// Minimum padded width of a recognizer input. PP-OCR pads to 320; 128 reads 16 short UI
+    /// labels (Latin and Chinese, light and dark) just as well and halves the time spent on them.
     pub rec_min_width: usize,
     /// Widest recognizer input; longer lines are squeezed to fit.
     pub rec_max_width: usize,
-    /// Upper bound on `lines * width` per recognizer batch (bounds memory).
+    /// Upper bound on `lines * width` (pixels at height 48) per recognizer batch. The
+    /// recognizer's output is `width / 8 * 18710` floats per line, so this bounds peak memory.
     pub rec_batch_max_area: usize,
     /// Lines below this confidence are dropped, but only if they are also very short.
     pub min_confidence: f32,
@@ -85,6 +94,9 @@ pub struct PaddleOptions {
     pub short_line_chars: usize,
     /// Probability above which the classifier flips a line by 180 degrees.
     pub cls_thresh: f32,
+    /// Re-centre every upright text box vertically on its ink before recognition (helps text
+    /// that the selection clips, costs well under a millisecond).
+    pub snap_to_ink: bool,
 }
 
 impl Default for PaddleOptions {
@@ -100,12 +112,13 @@ impl Default for PaddleOptions {
             det_unclip_ratio: 1.6,
             retry_upscaled: true,
             rec_batch: 4,
-            rec_min_width: 320,
+            rec_min_width: 128,
             rec_max_width: 4800,
-            rec_batch_max_area: 2560,
+            rec_batch_max_area: 1280,
             min_confidence: 0.5,
             short_line_chars: 3,
             cls_thresh: 0.9,
+            snap_to_ink: true,
         }
     }
 }
@@ -149,10 +162,19 @@ impl PaddleOcr {
     }
 
     /// Like [`OcrEngine::recognize`] but also reports where the time went.
-    pub fn recognize_timed(&self, img: &RgbaImage, opts: &OcrOptions) -> Result<(OcrResult, Timings)> {
+    pub fn recognize_timed(
+        &self,
+        img: &RgbaImage,
+        opts: &OcrOptions,
+    ) -> Result<(OcrResult, Timings)> {
         let t0 = Instant::now();
         let mut tm = Timings::default();
-        let empty = || OcrResult { lines: Vec::new(), text: String::new(), detected_lang: None, engine: "paddle" };
+        let empty = || OcrResult {
+            lines: Vec::new(),
+            text: String::new(),
+            detected_lang: None,
+            engine: "paddle",
+        };
         let (w, h) = img.dimensions();
         if w < 3 || h < 3 {
             return Ok((empty(), tm));
@@ -162,16 +184,28 @@ impl PaddleOcr {
         let rgb = rgba_to_rgb(img);
         let bg = background_color(&rgb);
         let pad = self.opts.pad;
-        let (page, off) = centered_canvas(&rgb, round_up(w + 2 * pad, 32), round_up(h + 2 * pad, 32), bg);
+        let (page, off) = centered_canvas(
+            &rgb,
+            round_up(w + 2 * pad, 32),
+            round_up(h + 2 * pad, 32),
+            bg,
+        );
         tm.prepare = t0.elapsed();
 
         // Detect.
         let t = Instant::now();
         let mut boxes = self.detect(&page, bg, 1.0)?;
-        if self.opts.retry_upscaled && (boxes.is_empty() || median_height(&boxes) < 12.0) && det_factor(&page, 2.0, self.opts.det_max_side) >= 1.5 {
+        if self.opts.retry_upscaled
+            && (boxes.is_empty() || median_height(&boxes) < 12.0)
+            && det_factor(&page, 2.0, self.opts.det_max_side) >= 1.5
+        {
             let up = self.detect(&page, bg, 2.0)?;
             if up.len() > boxes.len() {
-                log::debug!("2x detection found {} boxes instead of {}", up.len(), boxes.len());
+                log::debug!(
+                    "2x detection found {} boxes instead of {}",
+                    up.len(),
+                    boxes.len()
+                );
                 boxes = up;
             }
         }
@@ -184,27 +218,37 @@ impl PaddleOcr {
 
         // Recognize.
         let t = Instant::now();
-        let (kept, decoded) = self.recognize_boxes(&page, &boxes)?;
+        let bounds = [
+            off.0 as f32,
+            off.1 as f32,
+            (off.0 + w) as f32,
+            (off.1 + h) as f32,
+        ];
+        let (quads, decoded) = self.recognize_boxes(&page, &boxes, bounds)?;
         tm.recognize = t.elapsed();
 
         // Lines in input-image coordinates.
         let t = Instant::now();
-        let mut lines = Vec::with_capacity(kept.len());
-        for (bi, d) in kept.iter().zip(decoded) {
+        let mut lines = Vec::with_capacity(quads.len());
+        for (q, d) in quads.iter().zip(decoded) {
             let text = d.text.trim().to_string();
             if text.is_empty()
-                || (d.conf < self.opts.min_confidence && text.chars().count() <= self.opts.short_line_chars)
+                || (d.conf < self.opts.min_confidence
+                    && text.chars().count() <= self.opts.short_line_chars)
             {
                 continue;
             }
-            let q = &boxes[*bi].quad;
             let x0 = q.iter().map(|p| p[0]).fold(f32::MAX, f32::min) - off.0 as f32;
             let x1 = q.iter().map(|p| p[0]).fold(f32::MIN, f32::max) - off.0 as f32;
             let y0 = q.iter().map(|p| p[1]).fold(f32::MAX, f32::min) - off.1 as f32;
             let y1 = q.iter().map(|p| p[1]).fold(f32::MIN, f32::max) - off.1 as f32;
             let (x0, x1) = (x0.clamp(0.0, w as f32), x1.clamp(0.0, w as f32));
             let (y0, y1) = (y0.clamp(0.0, h as f32), y1.clamp(0.0, h as f32));
-            lines.push(OcrLine { text, bbox: [x0, y0, x1 - x0, y1 - y0], confidence: d.conf });
+            lines.push(OcrLine {
+                text,
+                bbox: [x0, y0, x1 - x0, y1 - y0],
+                confidence: d.conf,
+            });
         }
         let p = postprocess::process(lines, opts.merge_lines);
         tm.postprocess = t.elapsed();
@@ -219,7 +263,15 @@ impl PaddleOcr {
             tm.recognize,
             tm.postprocess
         );
-        Ok((OcrResult { lines: p.lines, text: p.text, detected_lang: p.detected_lang, engine: "paddle" }, tm))
+        Ok((
+            OcrResult {
+                lines: p.lines,
+                text: p.text,
+                detected_lang: p.detected_lang,
+                engine: "paddle",
+            },
+            tm,
+        ))
     }
 
     /// Runs the detector on `page` at about `scale`x (reduced if the result would exceed
@@ -232,7 +284,10 @@ impl PaddleOcr {
             (fx, fy) = (1.0f32, 1.0f32);
             page
         } else {
-            let (nw, nh) = (((pw as f32 * f).round() as u32).max(32), ((ph as f32 * f).round() as u32).max(32));
+            let (nw, nh) = (
+                ((pw as f32 * f).round() as u32).max(32),
+                ((ph as f32 * f).round() as u32).max(32),
+            );
             let scaled = resize(page, nw, nh);
             let (cw, ch) = (round_up(nw, 32), round_up(nh, 32));
             let mut canvas = RgbImage::from_pixel(cw, ch, image::Rgb(bg));
@@ -263,14 +318,20 @@ impl PaddleOcr {
         Ok(boxes)
     }
 
-    /// Crops, (optionally) orients, batches and decodes the boxes. Returns the indices of the
-    /// boxes that could be cropped, and their decoded text, in the same order.
-    fn recognize_boxes(&self, page: &RgbImage, boxes: &[DetBox]) -> Result<(Vec<usize>, Vec<Decoded>)> {
+    /// Crops, (optionally) orients, batches and decodes the boxes. Returns the (refined) quads of
+    /// the boxes that could be cropped, and their decoded text, in the same order.
+    fn recognize_boxes(
+        &self,
+        page: &RgbImage,
+        boxes: &[DetBox],
+        bounds: [f32; 4],
+    ) -> Result<(Vec<Quad>, Vec<Decoded>)> {
         let mut kept = Vec::with_capacity(boxes.len());
         let mut crops: Vec<RgbImage> = Vec::with_capacity(boxes.len());
-        for (i, b) in boxes.iter().enumerate() {
-            if let Some(c) = crop_quad(page, &b.quad) {
-                kept.push(i);
+        for b in boxes {
+            let quad = self.refined(page, &b.quad, bounds);
+            if let Some(c) = crop_quad(page, &quad) {
+                kept.push(quad);
                 crops.push(c);
             }
         }
@@ -280,33 +341,101 @@ impl PaddleOcr {
 
         let rec_imgs: Vec<RgbImage> = crops
             .iter()
-            .map(|c| resize(c, rec_width(c.width(), c.height(), self.opts.rec_max_width) as u32, REC_H as u32))
+            .map(|c| {
+                resize(
+                    c,
+                    rec_width(c.width(), c.height(), self.opts.rec_max_width) as u32,
+                    REC_H as u32,
+                )
+            })
             .collect();
         let widths: Vec<usize> = rec_imgs.iter().map(|i| i.width() as usize).collect();
-        let batches = plan_batches(&widths, self.opts.rec_batch, self.opts.rec_min_width, 1.25, self.opts.rec_batch_max_area);
+        let batches = plan_batches(
+            &widths,
+            self.opts.rec_batch,
+            self.opts.rec_min_width,
+            1.25,
+            self.opts.rec_batch_max_area,
+        );
 
         let mut out: Vec<Option<Decoded>> = vec![None; rec_imgs.len()];
         for (members, bw) in batches {
             let plane = REC_H * bw;
             let mut data = vec![0.0f32; members.len() * 3 * plane];
             for (slot, &i) in members.iter().enumerate() {
-                write_bgr_planar(&mut data[slot * 3 * plane..(slot + 1) * 3 * plane], plane, bw, &rec_imgs[i]);
+                write_bgr_planar(
+                    &mut data[slot * 3 * plane..(slot + 1) * 3 * plane],
+                    plane,
+                    bw,
+                    &rec_imgs[i],
+                );
             }
             let dict = &self.engine.dict;
-            let decoded = self.engine.run_rec(data, members.len(), bw, |probs, n, t, c| -> Result<Vec<Decoded>> {
-                if c != dict.classes() {
-                    return Err(OcrError::Inference(format!(
-                        "recognizer has {c} classes, dictionary {}",
-                        dict.classes()
-                    )));
-                }
-                Ok((0..n).map(|k| ctc_decode(&probs[k * t * c..(k + 1) * t * c], t, c, dict)).collect())
-            })??;
+            let decoded = self.engine.run_rec(
+                data,
+                members.len(),
+                bw,
+                |probs, n, t, c| -> Result<Vec<Decoded>> {
+                    if c != dict.classes() {
+                        return Err(OcrError::Inference(format!(
+                            "recognizer has {c} classes, dictionary {}",
+                            dict.classes()
+                        )));
+                    }
+                    Ok((0..n)
+                        .map(|k| {
+                            ctc_decode(
+                                &probs[k * t * c..(k + 1) * t * c],
+                                t,
+                                c,
+                                dict,
+                                bw as f32 / t as f32,
+                            )
+                        })
+                        .collect())
+                },
+            )??;
             for (&i, d) in members.iter().zip(decoded) {
                 out[i] = Some(d);
             }
         }
-        Ok((kept, out.into_iter().map(|d| d.unwrap_or(Decoded { text: String::new(), conf: 0.0 })).collect()))
+        Ok((
+            kept,
+            out.into_iter()
+                .map(|d| {
+                    d.unwrap_or(Decoded {
+                        text: String::new(),
+                        conf: 0.0,
+                    })
+                })
+                .collect(),
+        ))
+    }
+
+    /// Final recognition box. Upright boxes are re-centred vertically on their ink
+    /// ([`refine_vertical`]) and then clipped to the original image rectangle `bounds`
+    /// (`[x0, y0, x1, y1]` in page coordinates), like PaddleOCR clips boxes to the image: the
+    /// padding exists only to help detection, and text that the selection clips is read best when
+    /// the crop ends exactly at the cut instead of showing the cut against a margin.
+    fn refined(&self, page: &RgbImage, q: &Quad, bounds: [f32; 4]) -> Quad {
+        let upright =
+            q[0][1] == q[1][1] && q[2][1] == q[3][1] && q[0][0] == q[3][0] && q[1][0] == q[2][0];
+        if !upright {
+            return *q;
+        }
+        let (mut y0, mut y1) = (q[0][1], q[2][1]);
+        if self.opts.snap_to_ink {
+            (y0, y1) = refine_vertical(page, q[0][0], y0, q[1][0], y1);
+        }
+        let (x0, x1) = (
+            q[0][0].clamp(bounds[0], bounds[2]),
+            q[1][0].clamp(bounds[0], bounds[2]),
+        );
+        let (y0, y1) = (
+            y0.clamp(bounds[1], bounds[3]),
+            y1.clamp(bounds[1], bounds[3]),
+        );
+        [[x0, y0], [x1, y0], [x1, y1], [x0, y1]]
     }
 
     /// Turns lines the classifier considers upside down by 180 degrees.
@@ -316,7 +445,12 @@ impl PaddleOcr {
             for (k, c) in chunk.iter().enumerate() {
                 let w = ((48.0 * c.width() as f32 / c.height() as f32).ceil() as u32).clamp(8, 192);
                 let r = resize(c, w, 48);
-                write_bgr_planar(&mut data[k * 3 * 48 * 192..(k + 1) * 3 * 48 * 192], 48 * 192, 192, &r);
+                write_bgr_planar(
+                    &mut data[k * 3 * 48 * 192..(k + 1) * 3 * 48 * 192],
+                    48 * 192,
+                    192,
+                    &r,
+                );
             }
             let probs = self.engine.run_cls(data, chunk.len())?;
             for (c, p) in chunk.iter_mut().zip(probs) {

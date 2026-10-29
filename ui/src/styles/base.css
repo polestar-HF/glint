@@ -205,6 +205,21 @@ p {
   min-width: 0;
   padding: 0 10px;
 }
+/* Subtle: no fill or border until hovered (Fluent "SubtleButton"). For repeated row actions. */
+.btn.subtle {
+  border-color: transparent;
+  background: transparent;
+}
+.btn.subtle:hover {
+  background: var(--bg-subtle-hover);
+}
+.btn.subtle:active {
+  background: var(--bg-subtle-pressed);
+  border-color: transparent;
+}
+.btn.subtle:disabled {
+  background: transparent;
+}
 
 /* ── Keycap ─────────────────────────────────────────────────────────────── */
 .keys {

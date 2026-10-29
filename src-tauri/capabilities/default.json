@@ -6,10 +6,11 @@
   "permissions": [
     "core:default",
     "core:window:allow-start-dragging",
+    "core:window:allow-set-theme",
     "core:window:allow-hide",
     "core:window:allow-close",
     "core:window:allow-minimize",
     "core:window:allow-set-focus",
-    "core:app:allow-version"
+    "opener:default"
   ]
 }

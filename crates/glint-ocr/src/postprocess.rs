@@ -46,10 +46,18 @@ pub fn process(lines: Vec<OcrLine>, merge_lines: bool) -> Processed {
     let text = if merge_lines {
         paragraphs(&lines).join("\n")
     } else {
-        lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")
+        lines
+            .iter()
+            .map(|l| l.text.as_str())
+            .collect::<Vec<_>>()
+            .join("\n")
     };
     let detected_lang = detect_lang(&text);
-    Processed { lines, text, detected_lang }
+    Processed {
+        lines,
+        text,
+        detected_lang,
+    }
 }
 
 // ---------------------------------------------------------------------------------------
@@ -150,34 +158,63 @@ pub fn normalize_line(s: &str) -> String {
                 char::from_u32(c as u32 - 0xFF01 + 0x21).unwrap_or(c)
             }
             0x00A0 | 0x2000..=0x200A | 0x202F | 0x205F | 0x3000 | 0x0009 => ' ',
-            0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0xFEFF | 0xFFFD | 0x00AD => continue,
+            0x200B..=0x200F | 0x2028..=0x202E | 0x2060..=0x2064 | 0xFEFF | 0xFFFD | 0x00AD => {
+                continue
+            }
             _ if c.is_control() => ' ',
             _ => c,
         };
         chars.push(c);
     }
 
-    // Pass 2: punctuation style by context.
+    // Pass 2: punctuation style by context. The look-back reads the already converted output (so
+    // running the function again changes nothing), the look-ahead reads the original text.
     let n = chars.len();
-    let prev_sig = |i: usize| chars[..i].iter().rev().find(|c| **c != ' ').copied();
     let next_sig = |i: usize| chars[i + 1..].iter().find(|c| **c != ' ').copied();
     let mut out: Vec<char> = Vec::with_capacity(n + 4);
+    // Style of every bracket that is still open: true = full-width.
+    let mut open: Vec<bool> = Vec::new();
     for i in 0..n {
         let c = chars[i];
-        let prev = prev_sig(i);
+        let prev = out.iter().rev().find(|c| **c != ' ').copied();
         let next = next_sig(i);
-        let prev_cjk = prev.is_some_and(|p| is_han(p) || is_kana(p) || is_cjk_punct(p));
+        let directly_after = out.last().is_some_and(|c| *c != ' ');
+        let after_han_kana = prev.is_some_and(|p| is_han(p) || is_kana(p));
+        let prev_cjk = after_han_kana || prev.is_some_and(is_cjk_punct);
         let next_cjk = next.is_some_and(|p| is_han(p) || is_kana(p));
+        let latin_before = prev.is_some_and(|p| p.is_ascii_alphanumeric() || p == '.' || p == ',');
+
+        // Brackets keep one style per pair: an opener decides, its closer follows.
+        match c {
+            '(' | '（' => {
+                let fw = if c == '（' {
+                    prev_cjk || !next.is_some_and(|p| p.is_ascii_alphanumeric())
+                } else {
+                    next_cjk && !prev.is_some_and(|p| p.is_ascii_alphanumeric())
+                };
+                open.push(fw);
+                out.push(if fw { '（' } else { '(' });
+                continue;
+            }
+            ')' | '）' => {
+                let fw = open.pop().unwrap_or(if c == ')' {
+                    directly_after && after_han_kana
+                } else {
+                    !(latin_before && !next_cjk)
+                });
+                out.push(if fw { '）' } else { ')' });
+                continue;
+            }
+            _ => {}
+        }
+
         if let Some(fw) = to_fullwidth(c) {
-            let directly_after = i > 0 && chars[i - 1] != ' ';
             let convert = match c {
                 // `.` only right after CJK text; "a.com" and "3.14" stay.
-                '.' => directly_after && prev.is_some_and(|p| is_han(p) || is_kana(p)),
-                '(' => next_cjk && !prev.is_some_and(|p| p.is_ascii_alphanumeric()),
-                ')' => directly_after && prev.is_some_and(|p| is_han(p) || is_kana(p)),
+                '.' => directly_after && after_han_kana,
                 // `:` and `,` between digits are times / numbers.
                 ':' | ',' => {
-                    prev.is_some_and(|p| is_han(p) || is_kana(p) || is_cjk_punct(p))
+                    prev_cjk
                         && !(prev.is_some_and(|p| p.is_ascii_digit())
                             && next.is_some_and(|p| p.is_ascii_digit()))
                 }
@@ -187,13 +224,7 @@ pub fn normalize_line(s: &str) -> String {
             continue;
         }
         if let Some(hw) = to_halfwidth(c) {
-            let latin_before = prev.is_some_and(|p| p.is_ascii_alphanumeric() || p == '.' || p == ',');
-            let to_ascii = match c {
-                '（' => !prev_cjk && next.is_some_and(|p| p.is_ascii_alphanumeric()),
-                '）' => latin_before && !next_cjk,
-                _ => latin_before && !next_cjk,
-            };
-            if to_ascii {
+            if latin_before && !next_cjk {
                 out.push(hw);
                 // A sentence mark needs a space before the next word, but not inside "3。14".
                 let between_digits = prev.is_some_and(|p| p.is_ascii_digit())
@@ -232,7 +263,8 @@ pub fn normalize_line(s: &str) -> String {
             (None, _) | (_, None) => true,
             (Some(b), Some(a)) => {
                 let both_cjk = (is_han(b) || is_kana(b)) && (is_han(a) || is_kana(a));
-                let near_fw_punct = (is_cjk_punct(b) && !matches!(b, '（' | '「' | '『' | '【' | '《' | '〈'))
+                let near_fw_punct = (is_cjk_punct(b)
+                    && !matches!(b, '（' | '「' | '『' | '【' | '《' | '〈'))
                     || (is_cjk_punct(a) && !matches!(a, '（' | '「' | '『' | '【' | '《' | '〈'));
                 both_cjk || near_fw_punct
             }
@@ -265,7 +297,12 @@ struct Rc {
 
 impl Rc {
     fn from_box(b: &[f32; 4]) -> Self {
-        Rc { x0: b[0], y0: b[1], x1: b[0] + b[2].max(0.0), y1: b[1] + b[3].max(0.0) }
+        Rc {
+            x0: b[0],
+            y0: b[1],
+            x1: b[0] + b[2].max(0.0),
+            y1: b[1] + b[3].max(0.0),
+        }
     }
     fn h(&self) -> f32 {
         self.y1 - self.y0
@@ -350,7 +387,13 @@ fn trimmed_y(r: &Rc) -> (f32, f32) {
 fn widest_gap(rects: &[Rc], idx: &[usize], along_x: bool, min_gap: f32) -> Option<f32> {
     let mut iv: Vec<(f32, f32)> = idx
         .iter()
-        .map(|&i| if along_x { (rects[i].x0, rects[i].x1) } else { trimmed_y(&rects[i]) })
+        .map(|&i| {
+            if along_x {
+                (rects[i].x0, rects[i].x1)
+            } else {
+                trimmed_y(&rects[i])
+            }
+        })
         .collect();
     iv.sort_by(|a, b| a.0.total_cmp(&b.0));
     let mut reach = iv[0].1;
@@ -370,7 +413,9 @@ fn widest_gap(rects: &[Rc], idx: &[usize], along_x: bool, min_gap: f32) -> Optio
 /// i.e. they really are side by side and not two blocks stacked at different indents.
 fn overlap_vertically(rects: &[Rc], a: &[usize], b: &[usize]) -> bool {
     let ext = |g: &[usize]| {
-        g.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &i| (lo.min(rects[i].y0), hi.max(rects[i].y1)))
+        g.iter().fold((f32::MAX, f32::MIN), |(lo, hi), &i| {
+            (lo.min(rects[i].y0), hi.max(rects[i].y1))
+        })
     };
     let (a0, a1) = ext(a);
     let (b0, b1) = ext(b);
@@ -414,7 +459,13 @@ impl Ln<'_> {
 pub fn paragraphs(lines: &[OcrLine]) -> Vec<String> {
     let lns: Vec<Ln> = lines
         .iter()
-        .map(|l| Ln { text: &l.text, l: l.bbox[0], r: l.bbox[0] + l.bbox[2], t: l.bbox[1], b: l.bbox[1] + l.bbox[3] })
+        .map(|l| Ln {
+            text: &l.text,
+            l: l.bbox[0],
+            r: l.bbox[0] + l.bbox[2],
+            t: l.bbox[1],
+            b: l.bbox[1] + l.bbox[3],
+        })
         .collect();
     let mut out = Vec::new();
     for block in split_blocks(&lns) {
@@ -509,16 +560,17 @@ fn merge_block(b: &[Ln], out: &mut Vec<String>) {
             (n.cx() - a.cx()).abs() <= tol
         };
 
-        let ends = if !aligned {
-            true
-        } else if starts_with_marker(n.text) || ratio < MIN_HEIGHT_RATIO || gap > para_gap {
-            true
-        } else if new_align == Align::Center || align == Align::Center {
-            ends_with_terminal(a.text)
-        } else {
-            slack > SHORT_LINE_SLACK * width
-                || (ends_with_terminal(a.text) && slack > (1.5 * bh).max(0.08 * width))
-        };
+        let centered = new_align == Align::Center || align == Align::Center;
+        let ends = !aligned
+            || starts_with_marker(n.text)
+            || ratio < MIN_HEIGHT_RATIO
+            || gap > para_gap
+            || if centered {
+                ends_with_terminal(a.text)
+            } else {
+                slack > SHORT_LINE_SLACK * width
+                    || (ends_with_terminal(a.text) && slack > (1.5 * bh).max(0.08 * width))
+            };
 
         if ends {
             out.push(std::mem::take(&mut cur));
@@ -555,9 +607,18 @@ fn is_list_like(b: &[Ln]) -> bool {
 /// Terminal punctuation: `。！？.!?:：` (and `…`, `;`-like marks), ignoring closing quotes/brackets.
 fn ends_with_terminal(s: &str) -> bool {
     let t = s.trim_end_matches(|c: char| {
-        c.is_whitespace() || matches!(c, '"' | '\'' | '”' | '’' | '」' | '』' | '）' | ')' | ']' | '】' | '》' | '*')
+        c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\'' | '”' | '’' | '」' | '』' | '）' | ')' | ']' | '】' | '》' | '*'
+            )
     });
-    t.chars().next_back().is_some_and(|c| matches!(c, '。' | '！' | '？' | '.' | '!' | '?' | ':' | '：' | '…' | '；' | ';'))
+    t.chars().next_back().is_some_and(|c| {
+        matches!(
+            c,
+            '。' | '！' | '？' | '.' | '!' | '?' | ':' | '：' | '…' | '；' | ';'
+        )
+    })
 }
 
 /// Bullets and numbering that start a new item.
@@ -565,7 +626,23 @@ fn starts_with_marker(s: &str) -> bool {
     let mut it = s.chars();
     let Some(c0) = it.next() else { return false };
     let rest: &str = it.as_str();
-    if matches!(c0, '•' | '·' | '●' | '○' | '◦' | '▪' | '■' | '□' | '◆' | '◇' | '▶' | '▸' | '►' | '‣' | '⁃') {
+    if matches!(
+        c0,
+        '•' | '·'
+            | '●'
+            | '○'
+            | '◦'
+            | '▪'
+            | '■'
+            | '□'
+            | '◆'
+            | '◇'
+            | '▶'
+            | '▸'
+            | '►'
+            | '‣'
+            | '⁃'
+    ) {
         return true;
     }
     if matches!(c0, '-' | '–' | '—' | '*' | '+' | '>') {
@@ -575,7 +652,10 @@ fn starts_with_marker(s: &str) -> bool {
         return true;
     }
     if c0 == '（' || c0 == '(' {
-        let inner: String = rest.chars().take_while(|c| c.is_ascii_digit() || is_han(*c)).collect();
+        let inner: String = rest
+            .chars()
+            .take_while(|c| c.is_ascii_digit() || is_han(*c))
+            .collect();
         return !inner.is_empty()
             && inner.chars().count() <= 3
             && matches!(rest[inner.len()..].chars().next(), Some(')') | Some('）'));
@@ -606,10 +686,14 @@ fn join_lines(cur: &mut String, next: &str) {
         cur.push_str(next);
         return;
     };
-    let Some(first) = next.chars().next() else { return };
+    let Some(first) = next.chars().next() else {
+        return;
+    };
     if matches!(last, '-' | '\u{2010}' | '\u{2011}' | '\u{00AD}') {
         let before = cur.chars().rev().nth(1);
-        if before.is_some_and(|c| c.is_alphabetic() && !is_han(c) && !is_kana(c)) && first.is_alphanumeric() {
+        if before.is_some_and(|c| c.is_alphabetic() && !is_han(c) && !is_kana(c))
+            && first.is_alphanumeric()
+        {
             if first.is_lowercase() {
                 cur.pop();
             }
@@ -617,7 +701,8 @@ fn join_lines(cur: &mut String, next: &str) {
             return;
         }
     }
-    let no_space = is_cjk(last) || (is_han(first) || is_kana(first) || is_cjk_punct(first)) || last == ' ';
+    let no_space =
+        is_cjk(last) || (is_han(first) || is_kana(first) || is_cjk_punct(first)) || last == ' ';
     if !no_space {
         cur.push(' ');
     }
@@ -632,7 +717,8 @@ fn join_lines(cur: &mut String, next: &str) {
 /// Cyrillic / Thai / Arabic, and `whatlang` restricted to `en fr de es pt it vi` for Latin text.
 /// Returns `None` when there is no letter at all, and `"en"` when the Latin guess is unsure.
 pub fn detect_lang(text: &str) -> Option<String> {
-    let (mut han, mut kana, mut hangul, mut latin, mut cyr, mut ara, mut thai) = (0usize, 0, 0, 0, 0, 0, 0);
+    let (mut han, mut kana, mut hangul, mut latin, mut cyr, mut ara, mut thai) =
+        (0usize, 0, 0, 0, 0, 0, 0);
     for c in text.chars() {
         if is_han(c) {
             han += 1;
@@ -710,7 +796,11 @@ mod tests {
     use super::*;
 
     fn ln(text: &str, x: f32, y: f32, w: f32, h: f32) -> OcrLine {
-        OcrLine { text: text.into(), bbox: [x, y, w, h], confidence: 0.99 }
+        OcrLine {
+            text: text.into(),
+            bbox: [x, y, w, h],
+            confidence: 0.99,
+        }
     }
 
     /// Lines of equal height 20 stacked with `pitch`, each as wide as its text (8 px per char).
@@ -718,7 +808,15 @@ mod tests {
         texts
             .iter()
             .enumerate()
-            .map(|(i, t)| ln(t, x, y + pitch * i as f32, 8.0 * t.chars().count() as f32, 20.0))
+            .map(|(i, t)| {
+                ln(
+                    t,
+                    x,
+                    y + pitch * i as f32,
+                    8.0 * t.chars().count() as f32,
+                    20.0,
+                )
+            })
             .collect()
     }
 
@@ -739,7 +837,10 @@ mod tests {
     fn normalize_keeps_numbers_urls_and_versions() {
         assert_eq!(normalize_line("版本 0.1.0 发布"), "版本 0.1.0 发布");
         assert_eq!(normalize_line("时间 12:30 开始"), "时间 12:30 开始");
-        assert_eq!(normalize_line("访问 github.com 获取"), "访问 github.com 获取");
+        assert_eq!(
+            normalize_line("访问 github.com 获取"),
+            "访问 github.com 获取"
+        );
         assert_eq!(normalize_line("共3.14万"), "共3.14万");
         assert_eq!(normalize_line("共 1,000 人"), "共 1,000 人");
     }
@@ -775,6 +876,42 @@ mod tests {
         assert_eq!(normalize_line("한국어 문장"), "한국어 문장");
     }
 
+    #[test]
+    fn normalize_is_idempotent_and_never_panics() {
+        let samples = [
+            "",
+            " ",
+            "你好,世界.",
+            "Hello，world。 Test：5 （a） (b)",
+            "ＡＢＣ　１２３ ，。",
+            "识 别 结 果 , 12:30 . 3.14 a.com",
+            "한국어 , 문장 .",
+            "日本語、English，混在。",
+            "(1)内容 （2）内容 ) ( ，",
+            "\u{200B}\u{FFFD}\t\r\n x",
+            "。。。，，，",
+            "a，b。c！d？e：f；g（h）i",
+        ];
+        for s in samples {
+            let once = normalize_line(s);
+            assert_eq!(
+                normalize_line(&once),
+                once,
+                "not idempotent for {s:?}: {once:?}"
+            );
+            assert!(!once.starts_with(' ') && !once.ends_with(' '), "{once:?}");
+            assert!(!once.contains("  "), "{once:?}");
+        }
+    }
+
+    #[test]
+    fn normalize_traditional_chinese_and_brackets() {
+        assert_eq!(normalize_line("繁體中文,測試."), "繁體中文，測試。");
+        assert_eq!(normalize_line("见(图1)和(表2)"), "见（图1）和（表2）");
+        // A bracket opened in Latin text stays ASCII.
+        assert_eq!(normalize_line("call(foo) now"), "call(foo) now");
+    }
+
     // ----- reading order -----
 
     fn order_of(lines: &[OcrLine]) -> Vec<usize> {
@@ -805,7 +942,17 @@ mod tests {
         }
         let ord = order_of(&all);
         let got: Vec<&str> = ord.iter().map(|&i| all[i].text.as_str()).collect();
-        assert_eq!(got, ["L1 text text", "L2 text text", "L3 text text", "R1 text text", "R2 text text", "R3 text text"]);
+        assert_eq!(
+            got,
+            [
+                "L1 text text",
+                "L2 text text",
+                "L3 text text",
+                "R1 text text",
+                "R2 text text",
+                "R3 text text"
+            ]
+        );
     }
 
     #[test]
@@ -817,31 +964,61 @@ mod tests {
         all.rotate_left(3);
         let ord = order_of(&all);
         let got: Vec<&str> = ord.iter().map(|&i| all[i].text.as_str()).collect();
-        assert_eq!(got, ["A wide title across the page", "left one", "left two", "right one", "right two"]);
+        assert_eq!(
+            got,
+            [
+                "A wide title across the page",
+                "left one",
+                "left two",
+                "right one",
+                "right two"
+            ]
+        );
     }
 
     #[test]
     fn order_three_columns() {
         let mut all = Vec::new();
         for (c, x) in [("a", 10.0), ("b", 210.0), ("c", 410.0)] {
-            all.extend(stack(&[&format!("{c}1 some words"), &format!("{c}2 some words")], x, 10.0, 22.0));
+            all.extend(stack(
+                &[&format!("{c}1 some words"), &format!("{c}2 some words")],
+                x,
+                10.0,
+                22.0,
+            ));
         }
         all.reverse();
         let ord = order_of(&all);
         let got: Vec<&str> = ord.iter().map(|&i| all[i].text.as_str()).collect();
-        assert_eq!(got, ["a1 some words", "a2 some words", "b1 some words", "b2 some words", "c1 some words", "c2 some words"]);
+        assert_eq!(
+            got,
+            [
+                "a1 some words",
+                "a2 some words",
+                "b1 some words",
+                "b2 some words",
+                "c1 some words",
+                "c2 some words"
+            ]
+        );
     }
 
     #[test]
     fn order_same_row_boxes_go_left_to_right() {
-        let v = vec![ln("Cancel", 120.0, 10.0, 50.0, 20.0), ln("OK", 20.0, 11.0, 30.0, 20.0)];
+        let v = vec![
+            ln("Cancel", 120.0, 10.0, 50.0, 20.0),
+            ln("OK", 20.0, 11.0, 30.0, 20.0),
+        ];
         assert_eq!(order_of(&v), vec![1, 0]);
     }
 
     #[test]
     fn order_stacked_blocks_at_different_indents_stay_top_down() {
         // A narrow note top-right and a block bottom-left must not be read bottom-left first.
-        let v = vec![ln("bottom left block", 10.0, 100.0, 150.0, 20.0), ln("top right note", 300.0, 10.0, 120.0, 20.0)];
+        let v = vec![
+            ln("bottom left block", 10.0, 100.0, 150.0, 20.0),
+            ln("top right note", 300.0, 10.0, 120.0, 20.0),
+        ];
         assert_eq!(order_of(&v), vec![1, 0]);
     }
 
@@ -850,7 +1027,11 @@ mod tests {
         assert!(order_of(&[]).is_empty());
         assert_eq!(order_of(&[ln("x", 0.0, 0.0, 10.0, 10.0)]), vec![0]);
         // Inflated boxes that overlap vertically still read top-down.
-        let v = vec![ln("two", 10.0, 22.0, 100.0, 24.0), ln("one", 10.0, 0.0, 100.0, 24.0), ln("three", 10.0, 44.0, 100.0, 24.0)];
+        let v = vec![
+            ln("two", 10.0, 22.0, 100.0, 24.0),
+            ln("one", 10.0, 0.0, 100.0, 24.0),
+            ln("three", 10.0, 44.0, 100.0, 24.0),
+        ];
         assert_eq!(order_of(&v), vec![1, 0, 2]);
     }
 
@@ -864,7 +1045,12 @@ mod tests {
     #[test]
     fn paragraph_latin_lines_join_with_space() {
         let v = stack(
-            &["The quick brown fox jumps over", "the lazy dog and keeps running", "until it reaches the river bank", "and stops."],
+            &[
+                "The quick brown fox jumps over",
+                "the lazy dog and keeps running",
+                "until it reaches the river bank",
+                "and stops.",
+            ],
             10.0,
             10.0,
             24.0,
@@ -878,7 +1064,11 @@ mod tests {
     #[test]
     fn paragraph_undoes_hyphenation() {
         let v = stack(
-            &["Select any region and the transla-", "tion appears right next to it, so you", "never have to switch windows or retype."],
+            &[
+                "Select any region and the transla-",
+                "tion appears right next to it, so you",
+                "never have to switch windows or retype.",
+            ],
             10.0,
             10.0,
             24.0,
@@ -904,10 +1094,25 @@ mod tests {
     #[test]
     fn paragraph_cjk_lines_join_without_space() {
         let v = vec![
-            ln("截图翻译工具可以在几毫秒内识别屏幕上的文字，", 10.0, 10.0, 480.0, 22.0),
-            ln("译文便会显示在旁边，无需切换窗口。", 10.0, 34.0, 400.0, 22.0),
+            ln(
+                "截图翻译工具可以在几毫秒内识别屏幕上的文字，",
+                10.0,
+                10.0,
+                480.0,
+                22.0,
+            ),
+            ln(
+                "译文便会显示在旁边，无需切换窗口。",
+                10.0,
+                34.0,
+                400.0,
+                22.0,
+            ),
         ];
-        assert_eq!(merged(v), ["截图翻译工具可以在几毫秒内识别屏幕上的文字，译文便会显示在旁边，无需切换窗口。"]);
+        assert_eq!(
+            merged(v),
+            ["截图翻译工具可以在几毫秒内识别屏幕上的文字，译文便会显示在旁边，无需切换窗口。"]
+        );
     }
 
     #[test]
@@ -922,8 +1127,21 @@ mod tests {
     #[test]
     fn paragraph_gap_starts_new_paragraph() {
         // Same width lines; third line is separated by a blank line's worth of space.
-        let mut v = stack(&["First paragraph line one is", "long enough to wrap around."], 10.0, 10.0, 24.0);
-        v.extend(stack(&["Second paragraph starts here and", "wraps as well to the next line."], 10.0, 80.0, 24.0));
+        let mut v = stack(
+            &["First paragraph line one is", "long enough to wrap around."],
+            10.0,
+            10.0,
+            24.0,
+        );
+        v.extend(stack(
+            &[
+                "Second paragraph starts here and",
+                "wraps as well to the next line.",
+            ],
+            10.0,
+            80.0,
+            24.0,
+        ));
         let got = merged(v);
         assert_eq!(got.len(), 2, "{got:?}");
         assert!(got[0].starts_with("First") && got[0].ends_with("around."));
@@ -934,21 +1152,48 @@ mod tests {
     fn paragraph_ends_at_short_line_with_period() {
         // Both lines are on the same grid; the first is short and ends with a period.
         let v = vec![
-            ln("A full line of text in the paragraph that runs wide", 10.0, 10.0, 420.0, 20.0),
+            ln(
+                "A full line of text in the paragraph that runs wide",
+                10.0,
+                10.0,
+                420.0,
+                20.0,
+            ),
             ln("Done.", 10.0, 32.0, 40.0, 20.0),
-            ln("Next paragraph starts without extra gap", 10.0, 54.0, 320.0, 20.0),
+            ln(
+                "Next paragraph starts without extra gap",
+                10.0,
+                54.0,
+                320.0,
+                20.0,
+            ),
         ];
         let got = merged(v);
         assert_eq!(got.len(), 2, "{got:?}");
-        assert_eq!(got[0], "A full line of text in the paragraph that runs wide Done.");
+        assert_eq!(
+            got[0],
+            "A full line of text in the paragraph that runs wide Done."
+        );
         assert_eq!(got[1], "Next paragraph starts without extra gap");
     }
 
     #[test]
     fn paragraph_full_line_ending_with_period_does_not_end() {
         let v = vec![
-            ln("This line ends a sentence right at the margin.", 10.0, 10.0, 400.0, 20.0),
-            ln("The next sentence continues in the same block", 10.0, 32.0, 396.0, 20.0),
+            ln(
+                "This line ends a sentence right at the margin.",
+                10.0,
+                10.0,
+                400.0,
+                20.0,
+            ),
+            ln(
+                "The next sentence continues in the same block",
+                10.0,
+                32.0,
+                396.0,
+                20.0,
+            ),
             ln("of text and ends here.", 10.0, 54.0, 180.0, 20.0),
         ];
         assert_eq!(
@@ -960,8 +1205,20 @@ mod tests {
     #[test]
     fn paragraph_first_line_indent_is_accepted() {
         let v = vec![
-            ln("Indented first line of a paragraph that is long", 40.0, 10.0, 380.0, 20.0),
-            ln("and the second line starts at the left margin and", 10.0, 32.0, 410.0, 20.0),
+            ln(
+                "Indented first line of a paragraph that is long",
+                40.0,
+                10.0,
+                380.0,
+                20.0,
+            ),
+            ln(
+                "and the second line starts at the left margin and",
+                10.0,
+                32.0,
+                410.0,
+                20.0,
+            ),
             ln("the third line too.", 10.0, 54.0, 150.0, 20.0),
         ];
         assert_eq!(
@@ -972,14 +1229,39 @@ mod tests {
 
     #[test]
     fn list_of_short_lines_keeps_line_breaks() {
-        let v = stack(&["General", "Appearance", "Keyboard Shortcuts", "Translation Engines", "About Glint"], 16.0, 14.0, 27.0);
-        assert_eq!(merged(v), ["General", "Appearance", "Keyboard Shortcuts", "Translation Engines", "About Glint"]);
+        let v = stack(
+            &[
+                "General",
+                "Appearance",
+                "Keyboard Shortcuts",
+                "Translation Engines",
+                "About Glint",
+            ],
+            16.0,
+            14.0,
+            27.0,
+        );
+        assert_eq!(
+            merged(v),
+            [
+                "General",
+                "Appearance",
+                "Keyboard Shortcuts",
+                "Translation Engines",
+                "About Glint"
+            ]
+        );
     }
 
     #[test]
     fn tight_uniform_ui_list_stays_line_mode() {
         // Tightly spaced menu entries (no visible gaps) must still not be glued into a sentence.
-        let v = stack(&["File", "Edit", "Selection", "View", "Go", "Run"], 10.0, 10.0, 20.0);
+        let v = stack(
+            &["File", "Edit", "Selection", "View", "Go", "Run"],
+            10.0,
+            10.0,
+            20.0,
+        );
         assert_eq!(merged(v).len(), 6);
     }
 
@@ -987,8 +1269,20 @@ mod tests {
     fn bullets_start_new_paragraphs() {
         let v = vec![
             ln("Features of this release include", 10.0, 10.0, 300.0, 20.0),
-            ln("• Faster offline recognition on all", 10.0, 32.0, 300.0, 20.0),
-            ln("• Better paragraph merging for text", 10.0, 54.0, 300.0, 20.0),
+            ln(
+                "• Faster offline recognition on all",
+                10.0,
+                32.0,
+                300.0,
+                20.0,
+            ),
+            ln(
+                "• Better paragraph merging for text",
+                10.0,
+                54.0,
+                300.0,
+                20.0,
+            ),
         ];
         let got = merged(v);
         assert_eq!(got.len(), 3, "{got:?}");
@@ -1011,8 +1305,20 @@ mod tests {
     fn different_font_sizes_do_not_merge() {
         let v = vec![
             ln("A big heading", 10.0, 10.0, 200.0, 40.0),
-            ln("small body text under the heading that wraps", 10.0, 54.0, 400.0, 20.0),
-            ln("onto a second line of body text here today", 10.0, 76.0, 395.0, 20.0),
+            ln(
+                "small body text under the heading that wraps",
+                10.0,
+                54.0,
+                400.0,
+                20.0,
+            ),
+            ln(
+                "onto a second line of body text here today",
+                10.0,
+                76.0,
+                395.0,
+                20.0,
+            ),
         ];
         let got = merged(v);
         assert_eq!(got.len(), 2, "{got:?}");
@@ -1021,13 +1327,13 @@ mod tests {
 
     #[test]
     fn two_column_text_merges_per_column_not_across() {
-        let l = vec![
+        let l = [
             ln("Fast offline recognition", 15.0, 10.0, 168.0, 22.0),
             ln("keeps every screenshot on", 15.0, 32.0, 198.0, 22.0),
             ln("your own computer, with no", 15.0, 54.0, 202.0, 22.0),
             ln("upload and no account.", 15.0, 76.0, 172.0, 22.0),
         ];
-        let r = vec![
+        let r = [
             ln("Translate with the engine", 324.0, 10.0, 182.0, 22.0),
             ln("you trust: a free web service,", 323.0, 32.0, 210.0, 22.0),
             ln("your own API key, or a local", 323.0, 54.0, 202.0, 22.0),
@@ -1054,7 +1360,10 @@ mod tests {
             ln("I think we should leave", 200.0, 10.0, 200.0, 22.0),
             ln("before it gets dark outside", 187.0, 34.0, 226.0, 22.0),
         ];
-        assert_eq!(merged(v), ["I think we should leave before it gets dark outside"]);
+        assert_eq!(
+            merged(v),
+            ["I think we should leave before it gets dark outside"]
+        );
     }
 
     #[test]
@@ -1068,9 +1377,21 @@ mod tests {
 
     #[test]
     fn merge_false_keeps_every_line() {
-        let v = stack(&["one two three four five", "six seven eight nine ten", "eleven twelve."], 10.0, 10.0, 24.0);
+        let v = stack(
+            &[
+                "one two three four five",
+                "six seven eight nine ten",
+                "eleven twelve.",
+            ],
+            10.0,
+            10.0,
+            24.0,
+        );
         let p = process(v, false);
-        assert_eq!(p.text, "one two three four five\nsix seven eight nine ten\neleven twelve.");
+        assert_eq!(
+            p.text,
+            "one two three four five\nsix seven eight nine ten\neleven twelve."
+        );
         assert_eq!(p.lines.len(), 3);
     }
 
@@ -1086,28 +1407,75 @@ mod tests {
         assert_eq!(p.detected_lang.as_deref(), Some("zh"));
     }
 
+    #[test]
+    fn identical_boxes_and_zero_sizes_do_not_panic() {
+        let v = vec![
+            ln("a", 5.0, 5.0, 0.0, 0.0),
+            ln("b", 5.0, 5.0, 0.0, 0.0),
+            ln("c", 5.0, 5.0, 10.0, 10.0),
+        ];
+        let p = process(v, true);
+        assert_eq!(p.lines.len(), 3);
+        let p = process(vec![ln("only", 0.0, 0.0, 10.0, 10.0)], true);
+        assert_eq!(p.text, "only");
+        assert_eq!(process(Vec::new(), true).text, "");
+    }
+
+    #[test]
+    fn hyphenated_compound_before_capital_keeps_hyphen_in_a_paragraph() {
+        let v = stack(
+            &[
+                "He was a famous king of the Anglo-",
+                "Saxon people who ruled for many years",
+                "and then he died.",
+            ],
+            10.0,
+            10.0,
+            24.0,
+        );
+        assert_eq!(
+            merged(v),
+            ["He was a famous king of the Anglo-Saxon people who ruled for many years and then he died."]
+        );
+    }
+
     // ----- language -----
 
     #[test]
     fn lang_scripts() {
         assert_eq!(detect_lang("截图翻译工具").as_deref(), Some("zh"));
-        assert_eq!(detect_lang("スクリーンショットから文字を読み取る").as_deref(), Some("ja"));
-        assert_eq!(detect_lang("ひらがなとカタカナ、そして漢字").as_deref(), Some("ja"));
+        assert_eq!(
+            detect_lang("スクリーンショットから文字を読み取る").as_deref(),
+            Some("ja")
+        );
+        assert_eq!(
+            detect_lang("ひらがなとカタカナ、そして漢字").as_deref(),
+            Some("ja")
+        );
         assert_eq!(detect_lang("한국어 문장입니다").as_deref(), Some("ko"));
-        assert_eq!(detect_lang("Привет, как дела у тебя сегодня").as_deref(), Some("ru"));
+        assert_eq!(
+            detect_lang("Привет, как дела у тебя сегодня").as_deref(),
+            Some("ru")
+        );
         assert_eq!(detect_lang("สวัสดีครับ ยินดีที่ได้รู้จัก").as_deref(), Some("th"));
         assert_eq!(detect_lang("مرحبا بالعالم كيف حالك").as_deref(), Some("ar"));
     }
 
     #[test]
     fn lang_mixed_chinese_english_is_chinese() {
-        assert_eq!(detect_lang("Glint 支持 Windows 10 和 Windows 11 系统，默认快捷键为 Alt+Q").as_deref(), Some("zh"));
+        assert_eq!(
+            detect_lang("Glint 支持 Windows 10 和 Windows 11 系统，默认快捷键为 Alt+Q").as_deref(),
+            Some("zh")
+        );
     }
 
     #[test]
     fn lang_english_with_a_few_cjk_characters_is_english() {
         assert_eq!(
-            detect_lang("Press the button labelled 确定 to continue with the installation of the program").as_deref(),
+            detect_lang(
+                "Press the button labelled 确定 to continue with the installation of the program"
+            )
+            .as_deref(),
             Some("en")
         );
     }
@@ -1120,10 +1488,28 @@ mod tests {
 
     #[test]
     fn lang_latin_languages() {
-        assert_eq!(detect_lang("The quick brown fox jumps over the lazy dog near the river bank").as_deref(), Some("en"));
-        assert_eq!(detect_lang("Le renard brun rapide saute par-dessus le chien paresseux près de la rivière").as_deref(), Some("fr"));
-        assert_eq!(detect_lang("Der schnelle braune Fuchs springt über den faulen Hund am Flussufer").as_deref(), Some("de"));
-        assert_eq!(detect_lang("El rápido zorro marrón salta sobre el perro perezoso junto al río").as_deref(), Some("es"));
+        assert_eq!(
+            detect_lang("The quick brown fox jumps over the lazy dog near the river bank")
+                .as_deref(),
+            Some("en")
+        );
+        assert_eq!(
+            detect_lang(
+                "Le renard brun rapide saute par-dessus le chien paresseux près de la rivière"
+            )
+            .as_deref(),
+            Some("fr")
+        );
+        assert_eq!(
+            detect_lang("Der schnelle braune Fuchs springt über den faulen Hund am Flussufer")
+                .as_deref(),
+            Some("de")
+        );
+        assert_eq!(
+            detect_lang("El rápido zorro marrón salta sobre el perro perezoso junto al río")
+                .as_deref(),
+            Some("es")
+        );
     }
 
     #[test]
