@@ -2,23 +2,23 @@
   <!-- Glint / prism — 1024 master. One light source, top left. -->
   <defs>
     <linearGradient id="tile" x1="0" y1="64" x2="0" y2="960" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#2D2F33"/>
-      <stop offset="1" stop-color="#151618"/>
+      <stop offset="0" stop-color="#2E3034"/>
+      <stop offset="1" stop-color="#18191C"/>
     </linearGradient>
     <radialGradient id="sheen" cx="280" cy="160" r="800" gradientUnits="userSpaceOnUse">
       <stop offset="0" stop-color="#FFFFFF" stop-opacity=".07"/>
       <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
     </radialGradient>
     <linearGradient id="rim" x1="0" y1="64" x2="0" y2="960" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".18"/>
-      <stop offset=".3" stop-color="#FFFFFF" stop-opacity=".03"/>
-      <stop offset="1" stop-color="#000000" stop-opacity=".4"/>
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".2"/>
+      <stop offset=".3" stop-color="#FFFFFF" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity=".05"/>
     </linearGradient>
     <clipPath id="tileClip"><rect x="64" y="64" width="896" height="896" rx="200"/></clipPath>
     <filter id="grain" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
       <feTurbulence type="fractalNoise" baseFrequency=".78" numOctaves="3" seed="11" result="n"/>
       <feColorMatrix in="n" type="matrix" values=".33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1" result="g"/>
-      <feBlend in="SourceGraphic" in2="g" mode="soft-light" result="b"/>
+      <feBlend in="g" in2="SourceGraphic" mode="soft-light" result="b"/>
       <feComposite in="b" in2="SourceGraphic" operator="arithmetic" k2=".2" k3=".8" result="m"/>
       <feComposite in="m" in2="SourceGraphic" operator="in"/>
     </filter>
@@ -90,7 +90,8 @@
     <filter id="bloom" x="-50%" y="-200%" width="200%" height="500%"><feGaussianBlur stdDeviation="16"/></filter>
     <filter id="bloomWide" x="-60%" y="-300%" width="220%" height="700%"><feGaussianBlur stdDeviation="40"/></filter>
     <filter id="shadow" x="-40%" y="-40%" width="180%" height="180%"><feGaussianBlur stdDeviation="14"/></filter>
-    <filter id="flareBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="12"/></filter>
+    <filter id="refr" x="-20%" y="-50%" width="140%" height="200%"><feGaussianBlur stdDeviation="2.5"/></filter>
+    <filter id="flareBlur" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="9"/></filter>
     <filter id="hair" x="-10%" y="-400%" width="120%" height="900%"><feGaussianBlur stdDeviation="1.2"/></filter>
   </defs>
 
@@ -127,8 +128,10 @@
   <path d="M672 512 L512 672 L494 494Z" fill="url(#fBR)"/>
   <!-- seen through the glass: the line, refracted down and shifted -->
   <g clip-path="url(#lowerClip)">
-    <rect x="300" y="514" width="200" height="34" rx="17" fill="#FFFFFF" opacity=".42"/>
-    <rect x="524" y="516" width="160" height="30" rx="15" fill="#8CC4FA" opacity=".55"/>
+    <g filter="url(#refr)">
+      <rect x="300" y="516" width="196" height="30" rx="15" fill="#FFFFFF" opacity=".34"/>
+      <rect x="522" y="518" width="170" height="26" rx="13" fill="#A6D2FB" opacity=".5"/>
+    </g>
   </g>
   <!-- dispersion: the line's light fans out inside the glass -->
   <g clip-path="url(#crystalClip)">
@@ -148,7 +151,7 @@
   </g>
   <!-- the glint: a specular catch on the apex, anamorphic -->
   <g transform="translate(512 340)" style="mix-blend-mode:screen">
-    <ellipse rx="70" ry="30" fill="#FFFFFF" opacity=".28" filter="url(#flareBlur)"/>
+    <ellipse rx="34" ry="18" fill="#FFFFFF" opacity=".5" filter="url(#flareBlur)"/>
     <path d="M-150 0 Q0 -3.5 150 0 Q0 3.5 -150 0Z" fill="#FFFFFF"/>
     <path d="M0 -44 Q2.5 0 0 44 Q-2.5 0 0 -44Z" fill="#FFFFFF" opacity=".85"/>
     <circle r="7" fill="#FFFFFF"/>

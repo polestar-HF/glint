@@ -1,0 +1,101 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Paper turn — 1024 master. One light source, top left. Fold line: x + y = 1460. -->
+  <defs>
+    <clipPath id="tileClip"><rect x="64" y="64" width="896" height="896" rx="200"/></clipPath>
+    <clipPath id="frontClip"><path d="M0 0H1460L0 1460Z"/></clipPath>
+
+    <!-- paper -->
+    <linearGradient id="paper" x1="200" y1="80" x2="820" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FAF9F6"/>
+      <stop offset=".6" stop-color="#F1EEE8"/>
+      <stop offset="1" stop-color="#E4E0D8"/>
+    </linearGradient>
+    <filter id="paperGrain" x="0" y="0" width="1" height="1" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".9 .7" numOctaves="3" seed="4" result="fine"/>
+      <feTurbulence type="fractalNoise" baseFrequency=".012" numOctaves="3" seed="9" result="mottle"/>
+      <feColorMatrix in="fine" type="matrix" values=".33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1" result="fg"/>
+      <feColorMatrix in="mottle" type="matrix" values=".33 .33 .33 0 0 .33 .33 .33 0 0 .33 .33 .33 0 0 0 0 0 0 1" result="mg"/>
+      <feBlend in="mg" in2="SourceGraphic" mode="soft-light" result="m1"/>
+      <feComposite in="m1" in2="SourceGraphic" operator="arithmetic" k2=".18" k3=".82" result="m2"/>
+      <feBlend in="fg" in2="m2" mode="soft-light" result="f1"/>
+      <feComposite in="f1" in2="m2" operator="arithmetic" k2=".4" k3=".6" result="f2"/>
+      <feComposite in="f2" in2="SourceGraphic" operator="in"/>
+    </filter>
+
+    <!-- the page underneath: ink -->
+    <linearGradient id="ink" x1="730" y1="730" x2="940" y2="940" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2C7AD4"/>
+      <stop offset="1" stop-color="#175399"/>
+    </linearGradient>
+    <linearGradient id="foldShadow" x1="730" y1="730" x2="800" y2="800" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#06162E" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#06162E" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- curl underside: value shading across the curl, then an iridescent shift along it -->
+    <linearGradient id="curlValue" x1="730" y1="730" x2="590" y2="590" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#9AA6B4"/>
+      <stop offset=".12" stop-color="#E9EDF1"/>
+      <stop offset=".3" stop-color="#FFFFFF"/>
+      <stop offset=".75" stop-color="#F3F2EF"/>
+      <stop offset="1" stop-color="#E3E1DC"/>
+    </linearGradient>
+    <linearGradient id="curlIris" x1="960" y1="500" x2="500" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#7FD3EE"/>
+      <stop offset=".38" stop-color="#B7DCF7" stop-opacity=".2"/>
+      <stop offset=".62" stop-color="#FFD2B8" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#F7A982"/>
+    </linearGradient>
+    <linearGradient id="irisMaskG" x1="730" y1="730" x2="590" y2="590" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
+      <stop offset=".25" stop-color="#fff" stop-opacity=".9"/>
+      <stop offset=".7" stop-color="#fff" stop-opacity=".55"/>
+      <stop offset="1" stop-color="#fff" stop-opacity=".15"/>
+    </linearGradient>
+    <mask id="irisMask" maskUnits="userSpaceOnUse" x="500" y="500" width="500" height="500"><rect x="500" y="500" width="500" height="500" fill="url(#irisMaskG)"/></mask>
+
+    <filter id="soft16" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="16"/></filter>
+    <filter id="soft6" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="6"/></filter>
+    <linearGradient id="rim" x1="0" y1="64" x2="0" y2="960" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity=".9"/>
+      <stop offset=".45" stop-color="#000000" stop-opacity=".06"/>
+      <stop offset="1" stop-color="#000000" stop-opacity=".2"/>
+    </linearGradient>
+  </defs>
+
+  <g clip-path="url(#tileClip)">
+    <!-- page underneath (ink), revealed past the fold -->
+    <rect x="64" y="64" width="896" height="896" fill="url(#ink)" filter="url(#paperGrain)"/>
+    <!-- translated line on the ink page -->
+    <rect x="704" y="800" width="216" height="44" rx="22" fill="#F4F2EE"/>
+    <rect x="800" y="704" width="120" height="44" rx="22" fill="#F4F2EE" opacity=".55"/>
+    <!-- shade under the curl -->
+    <path d="M1460 0V1460H0Z" fill="url(#foldShadow)"/>
+
+    <!-- front page -->
+    <g clip-path="url(#frontClip)">
+      <rect x="64" y="64" width="896" height="896" fill="url(#paper)" filter="url(#paperGrain)"/>
+      <!-- printed source text -->
+      <!-- capture frame: three corners; the fourth is the page turning -->
+      <g fill="none" stroke="#26282C" stroke-width="40" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M224 336V224H336"/>
+        <path d="M688 224H800V336"/>
+        <path d="M336 800H224V688"/>
+      </g>
+      <rect x="304" y="372" width="400" height="44" rx="22" fill="#26282C"/>
+      <rect x="304" y="468" width="312" height="44" rx="22" fill="#26282C" opacity=".34"/>
+      <rect x="304" y="564" width="200" height="44" rx="22" fill="#26282C" opacity=".34"/>
+      <!-- the curl's shadow on the page -->
+      <path d="M960 500 C852 516 680 548 614 578 Q590 590 578 614 C548 680 516 852 500 960 Z" fill="#3A3226" opacity=".28" filter="url(#soft16)" transform="translate(6 8)"/>
+      <path d="M960 500 C852 516 680 548 614 578 Q590 590 578 614 C548 680 516 852 500 960 Z" fill="#3A3226" opacity=".25" filter="url(#soft6)" transform="translate(2 3)"/>
+    </g>
+
+    <!-- the curl -->
+    <path d="M960 500 C852 516 680 548 614 578 Q590 590 578 614 C548 680 516 852 500 960 Z" fill="url(#curlValue)"/>
+    <path d="M960 500 C852 516 680 548 614 578 Q590 590 578 614 C548 680 516 852 500 960 Z" fill="url(#curlIris)" mask="url(#irisMask)" style="mix-blend-mode:multiply"/>
+    <path d="M960 500 C852 516 680 548 614 578 Q590 590 578 614 C548 680 516 852 500 960" fill="none" stroke="#FFFFFF" stroke-width="3" stroke-opacity=".9"/>
+
+    <!-- paper edge -->
+    <rect x="64" y="64" width="896" height="896" rx="200" fill="none" stroke="url(#rim)" stroke-width="6"/>
+  </g>
+</svg>

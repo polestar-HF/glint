@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" shape-rendering="crispEdges">
+  <!-- Paper turn — 24 px, hand-tuned. Flat fills, no grain, no gradient. Fold: x + y = 34. -->
+  <defs><clipPath id="t"><rect width="24" height="24" rx="5"/></clipPath></defs>
+  <g clip-path="url(#t)">
+    <rect width="24" height="24" fill="#F4F2ED"/>
+    <path d="M24 10V24H10Z" fill="#1E6AC5" shape-rendering="geometricPrecision"/>
+    <g fill="#26282C">
+      <rect x="4" y="4" width="5" height="2"/><rect x="4" y="6" width="2" height="3"/>
+      <rect x="15" y="4" width="5" height="2"/><rect x="18" y="6" width="2" height="3"/>
+      <rect x="4" y="18" width="5" height="2"/><rect x="4" y="15" width="2" height="3"/>
+    </g>
+    <rect x="7" y="9" width="9" height="2" fill="#26282C"/>
+    <rect x="7" y="12" width="5" height="2" fill="#A09E9A"/>
+    <path d="M24 10 L14 14 L10 24Z" fill="#C3CCD7" shape-rendering="geometricPrecision"/>
+    <path d="M24 10 L15.2 14.2 L14.2 15.2 L10 24 L14 14Z" fill="#F7F8FA" shape-rendering="geometricPrecision"/>
+  </g>
+  <rect x=".5" y=".5" width="23" height="23" rx="4.5" fill="none" stroke="#000" stroke-opacity=".16" shape-rendering="geometricPrecision"/>
+</svg>

@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Paper turn — 16 px, hand-tuned. Flat fills, no grain, no gradient. Fold: x + y = 22. -->
+  <defs><clipPath id="t"><rect width="16" height="16" rx="3"/></clipPath></defs>
+  <g clip-path="url(#t)">
+    <rect width="16" height="16" fill="#F4F2ED"/>
+    <path d="M16 6V16H6Z" fill="#1E6AC5" shape-rendering="geometricPrecision"/>
+    <!-- three frame corners, 1 px -->
+    <g fill="#26282C">
+      <rect x="2" y="2" width="4" height="1"/><rect x="2" y="3" width="1" height="3"/>
+      <rect x="10" y="2" width="4" height="1"/><rect x="13" y="3" width="1" height="3"/>
+      <rect x="2" y="13" width="4" height="1"/><rect x="2" y="10" width="1" height="3"/>
+    </g>
+    <rect x="4" y="6" width="7" height="1" fill="#26282C"/>
+    <rect x="4" y="8" width="4" height="1" fill="#9A9894"/>
+    <!-- the turned corner -->
+    <path d="M16 6 L9 9 L6 16Z" fill="#CBD3DD" shape-rendering="geometricPrecision"/>
+    <path d="M16 6 L10.6 9.4 L9.4 10.6 L6 16 L9 9Z" fill="#F7F8FA" shape-rendering="geometricPrecision"/>
+  </g>
+  <rect x=".5" y=".5" width="15" height="15" rx="2.5" fill="none" stroke="#000" stroke-opacity=".18" shape-rendering="geometricPrecision"/>
+</svg>
