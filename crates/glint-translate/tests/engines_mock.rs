@@ -227,7 +227,31 @@ async fn a_503_is_retried_once_and_then_succeeds() {
 }
 
 #[tokio::test]
-async fn retry_after_header_is_honoured_for_429() {
+async fn a_429_is_not_retried_and_carries_retry_after() {
+    let mock = Mock::start(|_, _| Reply::json(429, "{}").with_header("Retry-After", "7")).await;
+    let started = Instant::now();
+    let (res, _) = run(&*engine(&anthropic_cfg(&mock.base)), &req("hi", "en", "fr")).await;
+    match res {
+        Err(e @ TranslateError::RateLimited { .. }) => {
+            assert_eq!(e.code(), "rate_limited");
+            assert_eq!(e.retry_after(), Some(Duration::from_secs(7)));
+            assert_eq!(e.user_message(), "Rate limited");
+        }
+        other => panic!("unexpected {other:?}"),
+    }
+    assert_eq!(
+        mock.count(),
+        1,
+        "asking again right away would only extend the block"
+    );
+    assert!(
+        started.elapsed() < Duration::from_secs(1),
+        "no waiting before giving up"
+    );
+}
+
+#[tokio::test]
+async fn a_rate_limited_engine_cools_down_and_recovers() {
     let stream = anthropic_sse(&["ok"]);
     let mock = Mock::start(move |_, i| {
         if i == 0 {
@@ -237,11 +261,30 @@ async fn retry_after_header_is_honoured_for_429() {
         }
     })
     .await;
-    let started = Instant::now();
-    let (res, _) = run(&*engine(&anthropic_cfg(&mock.base)), &req("hi", "en", "fr")).await;
-    assert!(res.is_ok());
+    let cache = Cache::default();
+    let t = build_cached(&anthropic_cfg(&mock.base), &http_client(), &cache).expect("builds");
+
+    let (res, _) = run(&*t, &req("one", "en", "fr")).await;
+    assert!(
+        matches!(&res, Err(e) if e.code() == "rate_limited" && e.retry_after() == Some(Duration::from_secs(1))),
+        "{res:?}"
+    );
+
+    // During the cool-down the engine is skipped without a request.
+    let (res, _) = run(&*t, &req("two", "en", "fr")).await;
+    match &res {
+        Err(e) => {
+            assert_eq!(e.code(), "rate_limited");
+            assert!(e.retry_after().is_some_and(|d| d <= Duration::from_secs(1)));
+        }
+        Ok(_) => panic!("should still be cooling down"),
+    }
+    assert_eq!(mock.count(), 1);
+
+    tokio::time::sleep(Duration::from_millis(1_100)).await;
+    let (res, _) = run(&*t, &req("three", "en", "fr")).await;
+    assert_eq!(res.ok().as_deref(), Some("ok"));
     assert_eq!(mock.count(), 2);
-    assert!(started.elapsed() >= Duration::from_millis(950));
 }
 
 #[tokio::test]
@@ -260,9 +303,9 @@ async fn at_most_one_retry_even_if_the_service_keeps_failing() {
     let mock = Mock::start(|_, _| Reply::json(429, "{}")).await;
     let (res, _) = run(&*engine(&anthropic_cfg(&mock.base)), &req("hi", "en", "fr")).await;
     assert!(
-        matches!(res, Err(TranslateError::Service { status: 429, ref message }) if message == "Rate limited")
+        matches!(res, Err(TranslateError::RateLimited { ref message, retry_after: None }) if message == "Rate limited")
     );
-    assert_eq!(mock.count(), 2);
+    assert_eq!(mock.count(), 1, "a 429 is not retried");
 }
 
 #[tokio::test]
@@ -441,7 +484,7 @@ async fn openai_errors_are_short() {
     assert!(
         matches!(res, Err(TranslateError::Service { status: 429, ref message }) if message == "Quota exceeded")
     );
-    assert_eq!(mock.count(), 2, "429 is retried once");
+    assert_eq!(mock.count(), 1, "an exhausted quota is not retried");
 
     let mock = Mock::start(|_, _| Reply::json(401, r#"{"error":{"message":"Incorrect API key provided: sk-abc","code":"invalid_api_key"}}"#)).await;
     let (res, _) = run(&*engine(&cfg("openai", &mock.base)), &req("hi", "en", "fr")).await;

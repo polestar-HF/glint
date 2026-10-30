@@ -378,6 +378,14 @@ textarea.src-text:focus-visible {
   display: grid;
   color: var(--critical);
 }
+/* Advice under the error line, aligned with its text (16px icon + 8px gap). */
+.err-hint {
+  margin: 4px 0 0 24px;
+  font-family: var(--font-small);
+  font-size: var(--fs-caption);
+  line-height: 16px;
+  color: var(--text-3);
+}
 .err-msg {
   flex: 1 1 auto;
   min-width: 0;

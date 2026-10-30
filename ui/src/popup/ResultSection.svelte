@@ -2,6 +2,7 @@
   import Icon from '../lib/Icon.svelte';
   import { fmtMs, t } from '../lib/i18n.svelte';
   import { htmlLang } from '../lib/langs';
+  import { describeError } from '../lib/errors';
   import Skeleton from './Skeleton.svelte';
   import type { ResultView } from './session.svelte';
 
@@ -11,11 +12,13 @@
     /** v0.2: add the first-token time to the meta. */
     showTimings?: boolean;
     lang: string;
+    /** v0.2.2: the engine is a keyless free endpoint (rate-limit advice differs). */
+    freeEndpoint?: boolean;
     oncopy: (text: string) => void;
     onretry: () => void;
     ontoggle: () => void;
   }
-  let { r, primary, showTimings = false, lang, oncopy, onretry, ontoggle }: Props = $props();
+  let { r, primary, showTimings = false, lang, freeEndpoint = false, oncopy, onretry, ontoggle }: Props = $props();
 
   const hasText = $derived(r.text.length > 0);
   const meta = $derived(
@@ -24,6 +27,7 @@
       : fmtMs(r.elapsedMs),
   );
   const live = $derived(r.status === 'streaming' || (r.status === 'pending' && hasText));
+  const err = $derived(r.status === 'error' ? describeError(r, freeEndpoint) : null);
 </script>
 
 <section class="sec result" class:primary class:collapsed={r.collapsed} aria-busy={r.status === 'waiting' || r.status === 'pending' || live}>
@@ -57,9 +61,10 @@
     {#if r.status === 'error'}
       <div class="err" role="alert">
         <span class="err-icon"><Icon name="alert" /></span>
-        <span class="err-msg" title={r.message}>{r.message}</span>
+        <span class="err-msg" title={err?.text === r.message ? r.message : `${err?.text}\n${r.message}`}>{err?.text}</span>
         <button class="text-btn" onclick={onretry}>{t('popup.retry')}</button>
       </div>
+      {#if err?.hint}<p class="err-hint">{err.hint}</p>{/if}
     {:else if !hasText}
       <Skeleton widths={r.status === 'waiting' ? [56] : primary ? [100, 72] : [88]} />
     {:else}

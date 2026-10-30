@@ -112,8 +112,10 @@ impl From<reqwest::Error> for Failure {
     }
 }
 
+/// 5xx only. A 429 is never retried: asking again right away only extends the block, so the
+/// engine cools down instead (see `crate::cooldown`).
 pub(crate) fn is_retryable_status(status: u16) -> bool {
-    status == 429 || (500..600).contains(&status)
+    (500..600).contains(&status)
 }
 
 /// Run `op`, and run it once more if it failed in a retryable way.
@@ -162,7 +164,18 @@ pub(crate) async fn send(
         .and_then(|v| v.trim().parse::<u64>().ok())
         .map(Duration::from_secs);
     let body = read_limited(resp).await;
-    let mut failure = Failure::from(service_error(status, &body, provider));
+    let err = match service_error(status, &body, provider) {
+        // Rate limiting (not an exhausted quota) carries the server's wait for the cool-down.
+        TranslateError::Service {
+            status: 429,
+            message,
+        } if message == "Rate limited" => TranslateError::RateLimited {
+            message,
+            retry_after,
+        },
+        other => other,
+    };
+    let mut failure = Failure::from(err);
     failure.retry_after = retry_after;
     Err(failure)
 }
@@ -461,7 +474,7 @@ mod tests {
 
     #[test]
     fn retryable_statuses() {
-        for s in [429, 500, 502, 503, 504, 529] {
+        for s in [500, 502, 503, 504, 529] {
             assert!(
                 Failure::from(TranslateError::Service {
                     status: s,
@@ -471,7 +484,8 @@ mod tests {
                 "{s}"
             );
         }
-        for s in [400, 401, 402, 403, 404, 413, 456] {
+        // 429 included: rate limits cool down instead of being retried.
+        for s in [400, 401, 402, 403, 404, 413, 429, 456] {
             assert!(
                 !Failure::from(TranslateError::Service {
                     status: s,

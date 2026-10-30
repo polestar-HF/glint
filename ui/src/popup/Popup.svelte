@@ -46,6 +46,11 @@
   // v0.2: one quiet line of timings, e.g.
   // 截图 21 ms · 选区 34 ms · 识别 142 ms（检测 48 / 识别 81）· 首字 610 ms. Absent parts are left out.
   const showTimings = $derived(!!config?.ui.showTimings);
+  /** Google/Bing without an API key use unofficial free endpoints. */
+  function isFreeEndpoint(engineId: string): boolean {
+    const e = config?.translate.engines.find((x) => x.id === engineId);
+    return !!e && (e.kind === 'google' || e.kind === 'bing') && !e.apiKey?.trim();
+  }
   const timingParts = $derived.by(() => {
     if (!showTimings) return [];
     const out: string[] = [];
@@ -414,6 +419,7 @@
             primary={i === 0}
             {showTimings}
             lang={s.targetLang}
+            freeEndpoint={isFreeEndpoint(r.engineId)}
             oncopy={copy}
             onretry={() => retry(r)}
             ontoggle={() => (r.collapsed = !r.collapsed)}

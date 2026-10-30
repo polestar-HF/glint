@@ -62,6 +62,7 @@ const popupScenes = [
   { name: 'popup-streaming', q: 'scene=streaming' },
   { name: 'popup-done', q: 'scene=done', hover: '.result.primary' },
   { name: 'popup-error', q: 'scene=error' },
+  { name: 'popup-ratelimit', q: 'scene=ratelimit' },
   { name: 'popup-ocr', q: 'scene=ocr' },
   { name: 'popup-langmenu', q: 'scene=done', click: '.lang-btn >> nth=1' },
   { name: 'popup-edited', q: 'scene=done', edit: true },

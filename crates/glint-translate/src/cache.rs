@@ -10,10 +10,12 @@
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Instant;
 
 use sha2::{Digest, Sha256};
 
-use crate::{DeltaSink, EngineConfig, Result, TranslateRequest, Translator};
+use crate::cooldown::Cooldowns;
+use crate::{DeltaSink, EngineConfig, Result, TranslateError, TranslateRequest, Translator};
 
 /// Default capacity, in entries.
 pub const DEFAULT_CAPACITY: usize = 200;
@@ -61,9 +63,13 @@ struct Inner {
 }
 
 /// A shared LRU cache. Clones share the same storage.
+///
+/// It also keeps each engine's rate-limit cool-down: a wrapped engine that got HTTP 429 is
+/// not asked again until its cool-down ends (cached results are still served meanwhile).
 #[derive(Debug, Clone)]
 pub struct Cache {
     inner: Arc<Mutex<Inner>>,
+    cooldowns: Arc<Cooldowns>,
 }
 
 impl Default for Cache {
@@ -80,6 +86,7 @@ impl Cache {
                 tick: 0,
                 map: HashMap::new(),
             })),
+            cooldowns: Arc::new(Cooldowns::default()),
         }
     }
 
@@ -175,11 +182,31 @@ impl Translator for CachedTranslator {
             let _ = deltas.send(hit.clone());
             return Ok(hit);
         }
-        let text = self.inner.translate(req, deltas).await?;
-        if !text.trim().is_empty() {
-            self.cache.insert(key, text.clone());
+        let cooldowns = &self.cache.cooldowns;
+        if let Some(left) = cooldowns.remaining(&self.engine_id, Instant::now()) {
+            return Err(TranslateError::RateLimited {
+                message: "Paused after rate limiting".into(),
+                retry_after: Some(left),
+            });
         }
-        Ok(text)
+        match self.inner.translate(req, deltas).await {
+            Ok(text) => {
+                cooldowns.succeeded(&self.engine_id);
+                if !text.trim().is_empty() {
+                    self.cache.insert(key, text.clone());
+                }
+                Ok(text)
+            }
+            Err(e) if e.code() == "rate_limited" => {
+                let wait = cooldowns.limited(&self.engine_id, e.retry_after(), Instant::now());
+                log::warn!("{} rate limited; cooling down for {wait:?}", self.engine_id);
+                Err(TranslateError::RateLimited {
+                    message: e.user_message(),
+                    retry_after: Some(wait),
+                })
+            }
+            Err(e) => Err(e),
+        }
     }
 }
 

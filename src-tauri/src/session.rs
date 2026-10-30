@@ -43,6 +43,12 @@ pub struct TranslationState {
     pub delta_count: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+    /// Error category for localized text (`glint_translate::TranslateError::code`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub code: Option<&'static str>,
+    /// While a rate-limited engine cools down: seconds until it is asked again.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_secs: Option<u64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub elapsed_ms: Option<u64>,
     /// Engine start to first streamed text.
@@ -177,4 +183,7 @@ pub struct TrError {
     pub session_id: u64,
     pub engine_id: String,
     pub message: String,
+    pub code: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub retry_after_secs: Option<u64>,
 }

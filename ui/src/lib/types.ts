@@ -107,6 +107,10 @@ export interface TrError {
   sessionId: number;
   engineId: string;
   message: string;
+  /** v0.2.2: error category (see lib/errors.ts). */
+  code?: string | null;
+  /** v0.2.2: rate-limited engines: seconds until they are asked again. */
+  retryAfterSecs?: number | null;
 }
 
 export interface EventMap {
@@ -136,6 +140,9 @@ export interface SnapshotTranslation {
   deltaCount?: number;
   /** v0.2. */
   firstTokenMs?: number | null;
+  /** v0.2.2. */
+  code?: string | null;
+  retryAfterSecs?: number | null;
 }
 
 export interface SessionSnapshot {

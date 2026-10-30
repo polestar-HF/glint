@@ -130,7 +130,7 @@ export function createMockBackend(): Backend {
       }
       case 'tr:error': {
         const s = p as EventMap['tr:error'];
-        Object.assign(tr(s.engineId), { status: 'error', message: s.message });
+        Object.assign(tr(s.engineId), { status: 'error', message: s.message, code: s.code, retryAfterSecs: s.retryAfterSecs });
         break;
       }
     }
@@ -166,12 +166,12 @@ export function createMockBackend(): Backend {
     e: EngineConfig,
     name: string,
     start: number,
-    opts: { fail?: boolean; size: number; every: number; fast?: boolean },
+    opts: { fail?: { message: string; code: string; retryAfterSecs?: number }; size: number; every: number; fast?: boolean },
   ) {
     at(start, () => emit('tr:start', { sessionId: id, engineId: e.id, engineName: name }));
     if (opts.fail) {
       at(start + 1300, () =>
-        emit('tr:error', { sessionId: id, engineId: e.id, message: 'service error (456): Quota exceeded for this billing period' }),
+        emit('tr:error', { sessionId: id, engineId: e.id, ...opts.fail! }),
       );
       return;
     }
@@ -196,7 +196,12 @@ export function createMockBackend(): Backend {
     enabled.forEach((e, i) => {
       const fast = e.kind === 'google' || e.kind === 'bing';
       streamEngine(id, e, nameOf(e), start + i * 6, {
-        fail: e.kind === 'deepl',
+        fail:
+          e.kind === 'deepl'
+            ? { message: 'Quota exceeded', code: 'quota' }
+            : scene === 'ratelimit' && e.kind === 'google'
+              ? { message: 'Rate limited', code: 'rate_limited', retryAfterSecs: 120 }
+              : undefined,
         size: fast ? 12 : 3,
         every: fast ? 70 : 42,
         fast,
@@ -267,7 +272,7 @@ export function createMockBackend(): Backend {
     test_engine: async ({ engine }) => {
       const e = engine as EngineConfig;
       await sleep(e.kind === 'google' ? 380 : 720);
-      if (e.kind === 'deepl') throw 'service error (403): Authorization failed. Check the API key.';
+      if (e.kind === 'deepl') throw { code: 'auth', message: 'Invalid API key' };
       if ((e.kind === 'youdao' || e.kind === 'baidu') && !e.apiKey) throw 'missing configuration: apiKey';
       if (e.kind === 'anthropic' && !e.apiKey && !e.baseUrl) throw 'missing configuration: apiKey';
       if (e.kind === 'openai') {

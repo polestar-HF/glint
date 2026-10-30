@@ -28,6 +28,9 @@ export interface ResultView {
   deltas: number;
   /** v0.2: engine start → first delta. */
   firstTokenMs: number | null;
+  /** v0.2.2: error category and rate-limit wait (see lib/errors.ts). */
+  code: string | null;
+  retryAfterSecs: number | null;
 }
 
 export interface PredictedEngine {
@@ -173,6 +176,8 @@ export class Session {
     r.elapsedMs = null;
     r.deltas = 0;
     r.firstTokenMs = null;
+    r.code = null;
+    r.retryAfterSecs = null;
   }
 
   trDelta(p: TrDelta) {
@@ -199,6 +204,8 @@ export class Session {
     const r = this.result(p.engineId);
     r.status = 'error';
     r.message = p.message;
+    r.code = p.code ?? null;
+    r.retryAfterSecs = p.retryAfterSecs ?? null;
   }
 
   /** Drops placeholders for engines that never started (config changed under us). */
@@ -232,6 +239,8 @@ export class Session {
         elapsedMs: t.elapsedMs ?? null,
         deltas: t.deltaCount ?? 0,
         firstTokenMs: t.firstTokenMs ?? null,
+        code: t.code ?? null,
+        retryAfterSecs: t.retryAfterSecs ?? null,
       }));
     }
   }
@@ -248,5 +257,7 @@ function blank(engineId: string, engineName: string, status: ResultStatus): Resu
     collapsed: false,
     deltas: 0,
     firstTokenMs: null,
+    code: null,
+    retryAfterSecs: null,
   };
 }

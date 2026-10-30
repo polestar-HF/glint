@@ -378,7 +378,7 @@ async fn translate_with(
                     .name
                     .clone()
                     .unwrap_or_else(|| glint_translate::default_name(&ec.kind).to_string());
-                emit_tr_error(app, session_id, &ec.id, &name, e.user_message());
+                emit_tr_error(app, session_id, &ec.id, &name, &e);
             }
         }
     }
@@ -439,6 +439,8 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     text: String::new(),
                     delta_count: 0,
                     message: None,
+                    code: None,
+                    retry_after_secs: None,
                     elapsed_ms: None,
                     first_token_ms: None,
                     started: Some(Instant::now()),
@@ -510,11 +512,18 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                 },
             );
         }
-        EngineEvent::Error { engine_id, message } => {
+        EngineEvent::Error {
+            engine_id,
+            message,
+            code,
+            retry_after_secs,
+        } => {
             state.update_session(session_id, |s| {
                 if let Some(t) = s.translation_mut(&engine_id) {
                     t.status = Status::Error;
                     t.message = Some(message.clone());
+                    t.code = Some(code);
+                    t.retry_after_secs = retry_after_secs;
                 }
             });
             let _ = app.emit(
@@ -523,13 +532,21 @@ fn on_engine_event(app: &AppHandle, session_id: u64, ev: EngineEvent) {
                     session_id,
                     engine_id,
                     message,
+                    code,
+                    retry_after_secs,
                 },
             );
         }
     }
 }
 
-fn emit_tr_error(app: &AppHandle, session_id: u64, engine_id: &str, name: &str, message: String) {
+fn emit_tr_error(
+    app: &AppHandle,
+    session_id: u64,
+    engine_id: &str,
+    name: &str,
+    err: &glint_translate::TranslateError,
+) {
     on_engine_event(
         app,
         session_id,
@@ -543,7 +560,9 @@ fn emit_tr_error(app: &AppHandle, session_id: u64, engine_id: &str, name: &str, 
         session_id,
         EngineEvent::Error {
             engine_id: engine_id.into(),
-            message,
+            message: err.user_message(),
+            code: err.code(),
+            retry_after_secs: err.retry_after().map(|d| d.as_secs().max(1)),
         },
     );
 }

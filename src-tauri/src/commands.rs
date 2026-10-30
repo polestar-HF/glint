@@ -80,9 +80,33 @@ pub fn hotkeys_suspend(app: AppHandle, suspended: bool) -> CmdResult<()> {
     hotkeys::set_suspended(&app, suspended).map_err(|e| e.to_string())
 }
 
+/// Why an engine test failed; `code` lets the UI localize it (see `TranslateError::code`).
+#[derive(Debug, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct EngineTestError {
+    code: &'static str,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    retry_after_secs: Option<u64>,
+}
+
+impl From<glint_translate::TranslateError> for EngineTestError {
+    fn from(e: glint_translate::TranslateError) -> Self {
+        Self {
+            code: e.code(),
+            message: e.user_message(),
+            retry_after_secs: e.retry_after().map(|d| d.as_secs().max(1)),
+        }
+    }
+}
+
+/// Bypasses the cache and any rate-limit cool-down: the user asked for a real request.
 #[tauri::command]
-pub async fn test_engine(state: State<'_, AppState>, engine: EngineConfig) -> CmdResult<String> {
-    let translator = glint_translate::build(&engine, &state.http).map_err(|e| e.user_message())?;
+pub async fn test_engine(
+    state: State<'_, AppState>,
+    engine: EngineConfig,
+) -> Result<String, EngineTestError> {
+    let translator = glint_translate::build(&engine, &state.http)?;
     let target = state.config().translate.target_lang;
     let req = TranslateRequest {
         text: "Hello, world.".into(),
@@ -95,10 +119,7 @@ pub async fn test_engine(state: State<'_, AppState>, engine: EngineConfig) -> Cm
         secondary_lang: None,
     };
     let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
-    translator
-        .translate(&req, tx)
-        .await
-        .map_err(|e| e.user_message())
+    Ok(translator.translate(&req, tx).await?)
 }
 
 #[tauri::command]

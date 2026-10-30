@@ -17,9 +17,11 @@
 //! Every engine honours `EngineConfig::base_url`, which makes proxies and local mocks easy.
 //! Timeouts: connect 5 s (set by [`http_client`]), total 30 s for machine-translation engines
 //! and 60 s for LLM engines (set per request). Each request is retried at most once, and only
-//! for connection errors, HTTP 5xx and 429, and only while nothing has streamed yet.
+//! for connection errors and HTTP 5xx, and only while nothing has streamed yet. HTTP 429 is
+//! never retried: the engine instead cools down (see [`Cache`]), honouring `Retry-After`.
 
 mod cache;
+mod cooldown;
 mod engines;
 mod http;
 pub mod langs;
@@ -107,6 +109,13 @@ pub enum TranslateError {
     Service { status: u16, message: String },
     #[error("unexpected response: {0}")]
     Parse(String),
+    /// The service said "too many requests" (HTTP 429), or the engine is still cooling down
+    /// after it did. `retry_after` is how long until it will be asked again.
+    #[error("rate limited: {message}")]
+    RateLimited {
+        message: String,
+        retry_after: Option<std::time::Duration>,
+    },
 }
 
 impl TranslateError {
@@ -117,6 +126,41 @@ impl TranslateError {
             TranslateError::Config(m) | TranslateError::Network(m) => m.clone(),
             TranslateError::Service { message, .. } => message.clone(),
             TranslateError::Parse(m) => format!("Unexpected response from the service ({m})"),
+            TranslateError::RateLimited { message, .. } => message.clone(),
+        }
+    }
+
+    /// A stable category the UI localizes and attaches advice to:
+    /// `rate_limited`, `quota`, `auth`, `not_found`, `too_long`, `bad_request`, `server`,
+    /// `timeout`, `network`, `config`, `bad_response` or `failed`.
+    pub fn code(&self) -> &'static str {
+        match self {
+            TranslateError::Config(_) => "config",
+            TranslateError::Network(m) if m.contains("timed out") => "timeout",
+            TranslateError::Network(_) => "network",
+            TranslateError::Parse(_) => "bad_response",
+            TranslateError::RateLimited { .. } => "rate_limited",
+            TranslateError::Service { status, message } => match status {
+                429 if message.starts_with("Quota") => "quota",
+                429 => "rate_limited",
+                402 | 456 => "quota",
+                401 => "auth",
+                403 if message.contains("API key") => "auth",
+                404 => "not_found",
+                413 => "too_long",
+                400 | 403 | 422 => "bad_request",
+                408 => "timeout",
+                500..=599 => "server",
+                _ => "failed",
+            },
+        }
+    }
+
+    /// For rate limiting: how long until the engine is tried again.
+    pub fn retry_after(&self) -> Option<std::time::Duration> {
+        match self {
+            TranslateError::RateLimited { retry_after, .. } => *retry_after,
+            _ => None,
         }
     }
 }

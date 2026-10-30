@@ -26,10 +26,14 @@ pub enum EngineEvent {
         text: String,
         elapsed_ms: u64,
     },
-    /// `message` is short and fit to show to the user.
+    /// `message` is short and fit to show to the user; `code` is its category (see
+    /// [`crate::TranslateError::code`]) for localized UI text; `retry_after_secs` is set while
+    /// a rate-limited engine cools down.
     Error {
         engine_id: String,
         message: String,
+        code: &'static str,
+        retry_after_secs: Option<u64>,
     },
 }
 
@@ -137,6 +141,8 @@ where
             on_event(EngineEvent::Error {
                 engine_id: id,
                 message: e.user_message(),
+                code: e.code(),
+                retry_after_secs: e.retry_after().map(|d| d.as_secs().max(1)),
             })
         }
     }
@@ -266,7 +272,9 @@ mod tests {
             b[2],
             EngineEvent::Error {
                 engine_id: "b".into(),
-                message: "Invalid API key".into()
+                message: "Invalid API key".into(),
+                code: "auth",
+                retry_after_secs: None,
             }
         );
 

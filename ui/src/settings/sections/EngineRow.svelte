@@ -1,8 +1,9 @@
 <script lang="ts">
+  import { asErrorInfo, describeError } from '../../lib/errors';
   import { tick, untrack } from 'svelte';
   import Icon from '../../lib/Icon.svelte';
   import { api } from '../../lib/ipc';
-  import { fmtMs, t, type MessageKey } from '../../lib/i18n.svelte';
+  import { fmtMs, t, type MessageKey, i18n } from '../../lib/i18n.svelte';
   import {
     engineName,
     hostOf,
@@ -84,7 +85,13 @@
       const out = await api.testEngine($state.snapshot(e) as EngineConfig);
       test = { state: 'ok', text: out, ms: performance.now() - t0 };
     } catch (err) {
-      test = { state: 'error', text: String(err), ms: 0 };
+      const info = asErrorInfo(err);
+      const free = (e.kind === 'google' || e.kind === 'bing') && !e.apiKey?.trim();
+      const d = describeError(info, free);
+      const sep = i18n.locale === 'zh-CN' ? '。' : '. ';
+      // Settings is where the fix happens, so only rate limits get advice here.
+      const hint = info.code === 'rate_limited' ? d.hint : null;
+      test = { state: 'error', text: hint ? `${d.text}${sep}${hint}` : d.text, ms: 0 };
     }
   }
 
