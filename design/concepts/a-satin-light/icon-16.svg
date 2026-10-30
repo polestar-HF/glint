@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Glint · Satin & light · 16 px. One gradient (the accent), no grain, whole pixels.
+       The text line is dropped at this size; frame + light carry the mark. -->
+  <defs>
+    <linearGradient id="light" x1="6" y1="0" x2="10" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F80DE"/>
+      <stop offset="1" stop-color="#8AD3F1"/>
+    </linearGradient>
+  </defs>
+  <rect width="16" height="16" rx="3" fill="#1E1F22" shape-rendering="geometricPrecision"/>
+  <path fill="#F4F4F2" d="M3 3h4v2H5v2H3zM9 3h4v4h-2V5H9zM3 9h2v2h2v2H3zM11 9h2v4H9v-2h2z"/>
+  <rect x="6" y="7" width="4" height="2" fill="url(#light)"/>
+</svg>

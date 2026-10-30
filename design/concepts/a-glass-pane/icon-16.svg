@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" shape-rendering="crispEdges">
+  <!-- Glint · Glass pane · 16 px. One gradient (the recognized light), no grain, whole pixels.
+       Glass = a lighter square; its lit corners are the brackets; one line of light inside. -->
+  <defs>
+    <linearGradient id="light" x1="5" y1="0" x2="10" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#2F80DE"/>
+      <stop offset="1" stop-color="#8AD3F1"/>
+    </linearGradient>
+  </defs>
+  <rect width="16" height="16" rx="3" fill="#1E1F22" shape-rendering="geometricPrecision"/>
+  <rect x="2" y="2" width="12" height="12" rx="2" fill="#34363C" shape-rendering="geometricPrecision"/>
+  <rect x="5" y="5" width="6" height="1" fill="#8A8E96"/>
+  <rect x="5" y="8" width="5" height="2" fill="url(#light)"/>
+  <path fill="#F4F4F2" d="M2 2h4v1H3v3H2zM10 2h4v4h-1V3h-3zM2 10h1v3h3v1H2zM13 10h1v4h-4v-1h3z"/>
+</svg>

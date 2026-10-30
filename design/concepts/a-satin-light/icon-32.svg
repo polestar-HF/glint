@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" shape-rendering="crispEdges">
+  <!-- Glint · Satin & light · 32 px. One gradient (the accent), no grain, whole pixels. -->
+  <defs>
+    <linearGradient id="light" x1="12" y1="0" x2="17" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#1E6AC5"/>
+      <stop offset="0.6" stop-color="#3A97E6"/>
+      <stop offset="1" stop-color="#A6E0F4"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="#1E1F22" shape-rendering="geometricPrecision"/>
+  <!-- Hairline edge: keeps the tile apart from a dark taskbar or Explorer. -->
+  <rect x="0.5" y="0.5" width="31" height="31" rx="6.5" fill="none" stroke="#FFFFFF" stroke-opacity="0.11" shape-rendering="geometricPrecision"/>
+  <!-- Satin falloff from the upper left, in three flat steps. -->
+  <path fill="#FFFFFF" d="M7 7h6v3H10v3H7z"/>
+  <path fill="#EDEDEB" d="M19 7h6v6h-3V10h-3zM7 19h3v3h3v3H7z"/>
+  <path fill="#D8D9DC" d="M22 19h3v6h-6v-3h3z"/>
+  <!-- Text line; its lower-left pixels catch the accent's light. -->
+  <rect x="12" y="13" width="8" height="2" fill="#F2F2F0"/>
+  <rect x="12" y="14" width="4" height="1" fill="#DCEBF7"/>
+  <!-- Accent: a short rod of light. -->
+  <rect x="12" y="17" width="5" height="2" fill="url(#light)"/>
+</svg>
