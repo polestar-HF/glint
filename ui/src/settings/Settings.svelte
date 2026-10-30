@@ -15,11 +15,11 @@
 
   type Id = 'general' | 'hotkeys' | 'ocr' | 'translate' | 'appearance' | 'about';
   const sections: Array<{ id: Id; icon: IconName; label: MessageKey; comp: Component }> = [
-    { id: 'general', icon: 'sliders', label: 'nav.general', comp: General },
+    { id: 'general', icon: 'gear', label: 'nav.general', comp: General },
     { id: 'hotkeys', icon: 'keyboard', label: 'nav.hotkeys', comp: Hotkeys },
     { id: 'ocr', icon: 'scan', label: 'nav.ocr', comp: Ocr },
     { id: 'translate', icon: 'translate', label: 'nav.translate', comp: Translation },
-    { id: 'appearance', icon: 'contrast', label: 'nav.appearance', comp: Appearance },
+    { id: 'appearance', icon: 'palette', label: 'nav.appearance', comp: Appearance },
     { id: 'about', icon: 'info', label: 'nav.about', comp: About },
   ];
 
@@ -115,7 +115,7 @@
       <div class="nav-list" onkeydown={navKey}>
         {#each sections as s (s.id)}
           <button class="nav-item" aria-current={current === s.id ? 'page' : undefined} onclick={() => go(s.id)}>
-            <Icon name={s.icon} />
+            <Icon name={s.icon} solid={current === s.id} />
             <span>{t(s.label)}</span>
           </button>
         {/each}

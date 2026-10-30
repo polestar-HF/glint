@@ -130,6 +130,26 @@ there too. Cargo caches are written by the default branch only; PRs and tags res
 Code signing is not enabled: Windows SmartScreen will warn on the installer. A commented placeholder in
 `windows-build.yml` shows where to add a certificate from repository secrets.
 
+## App icon
+
+The icon sources are in `design/`. `icon.svg` is the 1024 master, and `icon-{16,24,32}.svg` are hand-tuned, pixel-aligned small sizes. Earlier versions and the explored concepts are kept in `design/legacy-v0.2/` and `design/concepts/`.
+
+After changing an SVG, regenerate `src-tauri/icons/` and commit the result:
+
+```bash
+node scripts/build-icons.cjs   # needs `npm ci` in ui/ (Playwright)
+```
+
+## UI icons
+
+UI icons come from qingicon (Apache-2.0). To add or swap one, edit `MAP` in `scripts/build-ui-icons.cjs` and regenerate `ui/src/lib/icons.ts`:
+
+```bash
+node scripts/build-ui-icons.cjs   # fetches @pitrix/qingicon-react with `npm pack`
+```
+
+The license is in `third_party/qingicon/LICENSE`, and the installer ships it as `licenses/qingicon-LICENSE.txt`.
+
 ## Expected sizes
 
 Size is a product KPI (installer under 45 MB per `ARCHITECTURE.md`; CI measures MiB). The job summary lists every

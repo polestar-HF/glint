@@ -46,7 +46,7 @@ env:
   # glint.exe need the app-local VC++ runtime DLLs (see bundle.resources in
   # tauri.conf.json).
   APP_BIN: glint
-  PORTABLE_RESOURCE_DIRS: models
+  PORTABLE_RESOURCE_DIRS: models,licenses
   PORTABLE_REQUIRED_FILES: onnxruntime.dll,msvcp140.dll,msvcp140_1.dll,vcruntime140.dll,vcruntime140_1.dll
   MIN_REQUIRED_FILE_BYTES: "10240"
   # Size KPI: installer budget (MiB). Exceeding it warns, it does not fail.

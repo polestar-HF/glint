@@ -21,7 +21,7 @@ Screenshots of every state are in `docs/screenshots/` (light and dark, rendered 
 | Purple, indigo or blue-violet gradients, gradient text | One flat accent (Ink `#1E6AC5`), with its hue held at 256°, well away from violet |
 | Glassmorphism cards, glow, neon, colored drop shadows | The OS Mica material, translucent Fluent layers and 1 px hairlines; a shadow only on flyouts and the toast |
 | Sparkle or magic-wand icons, "✨ AI" labels | Engines are named plainly ("Claude", "Google 翻译"); no engine gets a special badge |
-| Emoji as icons | Hand-drawn 16 px line icons with a 1.5 px stroke (§7) |
+| Emoji as icons | One icon family, qingicon duotone, at 16 px (§7) |
 | Big rounded "bento" cards with soft 24 px shadows | Radii of 4, 6 and 8 px; settings groups are single hairline-bordered lists |
 | Inter everywhere | Segoe UI Variable (Small, Text and Display cuts) with Microsoft YaHei UI and Yu Gothic UI for CJK |
 | Pill badges and chips for metadata | Metadata is quiet inline text: `PaddleOCR · 86 ms`, `免费 · 尽力而为`, `首选` |
@@ -150,15 +150,18 @@ No web fonts are loaded. The families are:
 
 ## 7. Iconography
 
-- **Grid and stroke.** Icons are drawn on a 16 × 16 grid with a 1.5 px stroke, round caps and round joins, and are always rendered at 16 px. They are never scaled; a smaller icon would thin the stroke.
-- **Bounds.** Glyphs stay inside 1.75–14.25, so the stroke never clips.
-- **Filled parts.** Fills are reserved for dots (the alert and info points, the grip) and for state: `pin-filled` when pinned, and the dark half of the theme glyph.
-- **Source.** Icons are inline SVG paths in `ui/src/lib/icons.ts`, drawn for Glint after the Fluent System Icons geometry, with no icon font. The set:
-  - chevron-down, chevron-up, chevron-right, chevron-small
-  - swap, copy, close, pin, pin-filled, check
-  - alert, info, retry, reset, enter
-  - keyboard, sliders, scan, translate (文A), contrast, grip
-  - external, eye, eye-off, arrow-up, arrow-down
+- **Family.** All UI icons come from [qingicon](https://qingicon.com) (QingCloud, Apache-2.0; see `third_party/qingicon`). Do not mix in glyphs from other sets: one family keeps weight and corner shapes consistent.
+- **Grid.** qingicon draws filled shapes on a 48 × 48 grid. Glint always renders them at 16 px (1 px = 3 units), so no stroke thins out when scaled.
+- **Two variants, two meanings.**
+  - **Duotone** is the resting look. The primary layer is `currentColor`; the secondary layer is the same color at `--icon-tone` (0.45) opacity, so it follows the text color, hover and theme. qingicon's own fixed gray (`#b6c2cd`) is not used.
+  - **Fill** (solid) means "on": the pinned pin, and the current page in the settings nav (`<Icon solid>`).
+- **Smaller glyphs.** `chevron-small` (the language and select menus) is `chevron-down` inset by 8 units in the same 16 px box, not a smaller box.
+- **Source.** `scripts/build-ui-icons.cjs` extracts the glyphs listed in its `MAP` from the `@pitrix/qingicon-react` sprite and generates `ui/src/lib/icons.ts`. Do not edit that file by hand. The set, as Glint name ← qingicon name:
+  - chevron-down, chevron-up, chevron-small ← chevron-down
+  - swap ← left-right, copy, close, pin, check, alert ← warning-2, info ← information
+  - reset ← go-back, enter ← go-back-turn-2, grip ← drag, external ← share-box
+  - Settings nav: gear ← gear-2 (常规), keyboard (快捷键), scan ← scan-code (识别), translate ← language-switch-2 (翻译), palette (外观), info (关于)
+  - eye, eye-off, plus ← add, trash
 
 ## 8. Motion
 
@@ -188,7 +191,7 @@ No web fonts are loaded. The families are:
   - Each button is 28 px tall, 13 px text, with a `text-3` chevron.
   - When the source is `auto` and a language has been detected, the button shows the detected name followed by a `text-3` "自动".
   - Swap is disabled until a source language is known.
-- **Icon buttons** on the right: pin (`aria-pressed`; filled and accent-colored when pinned), copy-all, close. All are neutral on hover; there is no red close.
+- **Icon buttons** on the right: pin (`aria-pressed`; solid and accent-colored when pinned), copy-all, close. All are neutral on hover; there is no red close.
 
 **Language menu** (flyout):
 - It opens under the strip, 8 px from the left, with a "源语言" / "目标语言" caption and a 3-column grid of 32 px items.
@@ -265,7 +268,7 @@ Events whose `sessionId` is older than the current one are dropped. A `retransla
 ### Settings (`settings.html`)
 
 - **Navigation.**
-  - Each item is 36 px tall, with a 16 px icon, a 12 px gap and a 14 px label. Hover gets a subtle fill.
+  - Each item is 36 px tall, with a 16 px icon, a 12 px gap and a 14 px label. Hover gets a subtle fill The current page's icon switches to its solid variant.
   - The selected item gets a fill plus a 3 × 16 px accent indicator, which scales in over 160 ms.
   - ↑ and ↓ move between sections.
   - The bottom line shows the save state: "更改会自动保存", "正在保存…", "✓ 已保存" or "保存失败" in the critical color, with the error in a tooltip.

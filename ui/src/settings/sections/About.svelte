@@ -17,6 +17,7 @@
     { name: 'ONNX Runtime', license: 'MIT' },
     { name: 'Tauri', license: 'MIT / Apache-2.0' },
     { name: 'Svelte', license: 'MIT' },
+    { name: 'qingicon', license: 'Apache-2.0' },
   ];
 
   let version = $state('');

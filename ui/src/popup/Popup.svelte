@@ -357,7 +357,7 @@
       aria-label={pinned ? t('popup.unpin') : t('popup.pin')}
       onclick={togglePin}
     >
-      <Icon name={pinned ? 'pin-filled' : 'pin'} />
+      <Icon name="pin" solid={pinned} />
     </button>
     <button
       class="icon-btn"
