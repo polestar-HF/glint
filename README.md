@@ -1,8 +1,6 @@
-<p>
-  <img src="design/icon.png" width="76" height="76" alt="Glint icon">
-</p>
-
-# Glint
+<h1>
+  <img src="design/icon.png" width="48" height="48" align="absmiddle" alt="Glint icon">&nbsp;Glint
+</h1>
 
 A lightweight screenshot translation tool for Windows. Press a hotkey and the screen freezes. Drag a region, or click a window, and a small popup next to it shows the recognized text and its translation.
 
