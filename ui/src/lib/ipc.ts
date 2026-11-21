@@ -84,7 +84,7 @@ export const api = {
   /** Needs tauri-plugin-opener with `opener:allow-open-url`. */
   openUrl: (url: string) =>
     inTauri ? call<void>('plugin:opener|open_url', { url }) : Promise.resolve(void window.open(url, '_blank')),
-  appVersion: () => (inTauri ? call<string>('plugin:app|version') : Promise.resolve('0.2.3')),
+  appVersion: () => (inTauri ? call<string>('plugin:app|version') : Promise.resolve('0.2.4')),
   /** Keeps the Mica material in step with a theme override. Needs `core:window:allow-set-theme`. */
   setWindowTheme: (theme: ThemeChoice) => {
     const label = windowLabel();
