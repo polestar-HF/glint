@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, untrack, type Component } from 'svelte';
   import { getCurrentWindow } from '@tauri-apps/api/window';
+  import BrandMark from '../lib/BrandMark.svelte';
   import Icon from '../lib/Icon.svelte';
   import { inTauri } from '../lib/ipc';
   import { t, type MessageKey } from '../lib/i18n.svelte';
@@ -111,6 +112,10 @@
 
   <div class="settings">
     <nav class="nav" aria-label={t('settings.title')}>
+      <div class="nav-brand">
+        <BrandMark size={22} />
+        <span class="nav-brand-name">Glint</span>
+      </div>
       <!-- svelte-ignore a11y_no_static_element_interactions -->
       <div class="nav-list" onkeydown={navKey}>
         {#each sections as s (s.id)}

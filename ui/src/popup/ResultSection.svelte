@@ -9,6 +9,8 @@
   interface Props {
     r: ResultView;
     primary: boolean;
+    /** True when multiple translation engines are active, so the primary card shows its badge. */
+    multi?: boolean;
     /** v0.2: add the first-token time to the meta. */
     showTimings?: boolean;
     lang: string;
@@ -18,7 +20,7 @@
     onretry: () => void;
     ontoggle: () => void;
   }
-  let { r, primary, showTimings = false, lang, freeEndpoint = false, oncopy, onretry, ontoggle }: Props = $props();
+  let { r, primary, multi = false, showTimings = false, lang, freeEndpoint = false, oncopy, onretry, ontoggle }: Props = $props();
 
   const hasText = $derived(r.text.length > 0);
   const meta = $derived(
@@ -30,9 +32,21 @@
   const err = $derived(r.status === 'error' ? describeError(r, freeEndpoint) : null);
 </script>
 
-<section class="sec result" class:primary class:collapsed={r.collapsed} aria-busy={r.status === 'waiting' || r.status === 'pending' || live}>
+<section
+  class="sec result"
+  class:primary
+  class:has-error={r.status === 'error'}
+  class:collapsed={r.collapsed}
+  aria-busy={r.status === 'waiting' || r.status === 'pending' || live}
+>
   <div class="sec-head">
+    {#if primary && r.status !== 'error'}
+      <span class="status-dot" class:live={live || r.status === 'pending'} aria-hidden="true"></span>
+    {/if}
     <span class="sec-label">{r.engineName}</span>
+    {#if primary && multi && r.status !== 'error'}
+      <span class="primary-badge">{t('tr.primary')}</span>
+    {/if}
     {#if r.status === 'done' && r.elapsedMs != null}
       <span class="meta tnum">{meta}</span>
     {/if}

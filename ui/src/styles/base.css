@@ -140,6 +140,11 @@ p {
   color: var(--text-2);
 }
 .icon-btn[aria-pressed='true'] {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.icon-btn[aria-pressed='true']:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent);
 }
 .icon-btn:disabled {
@@ -158,18 +163,25 @@ p {
   font-family: var(--font-small);
   font-size: var(--fs-caption);
   line-height: 16px;
+  font-weight: 500;
   color: var(--accent);
   white-space: nowrap;
-  transition: background-color var(--dur-1) var(--ease-std);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    color var(--dur-1) var(--ease-std),
+    border-color var(--dur-1) var(--ease-std);
 }
 .text-btn:hover {
-  background: var(--bg-subtle-hover);
+  background: var(--accent-soft);
 }
 .text-btn:active {
-  background: var(--bg-subtle-pressed);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
 }
 .text-btn.neutral {
   color: var(--text-2);
+}
+.text-btn.neutral:hover {
+  background: var(--bg-subtle-hover);
 }
 
 /* ── Standard button (Fluent "Button") ──────────────────────────────────── */
@@ -185,9 +197,12 @@ p {
   border: 1px solid var(--stroke-control);
   border-bottom-color: var(--stroke-control-bottom);
   background: var(--bg-control) padding-box;
+  box-shadow: var(--shadow-control), var(--highlight-top);
   color: var(--text-1);
   white-space: nowrap;
-  transition: background-color var(--dur-1) var(--ease-std);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    border-color var(--dur-1) var(--ease-std);
 }
 .btn:hover {
   background-color: var(--bg-control-hover);
@@ -196,10 +211,12 @@ p {
   background-color: var(--bg-control-pressed);
   color: var(--text-2);
   border-bottom-color: var(--stroke-control);
+  box-shadow: none;
 }
 .btn:disabled {
   color: var(--text-4);
   background-color: var(--bg-control-pressed);
+  box-shadow: none;
 }
 .btn.sm {
   height: 28px;
@@ -210,6 +227,7 @@ p {
 .btn.subtle {
   border-color: transparent;
   background: transparent;
+  box-shadow: none;
 }
 .btn.subtle:hover {
   background: var(--bg-subtle-hover);
@@ -249,6 +267,7 @@ p {
   border-bottom-width: 2px;
   border-bottom-color: var(--stroke-control-bottom);
   background: var(--bg-control) padding-box;
+  box-shadow: var(--highlight-top);
   font-family: var(--font-small);
   font-size: var(--fs-caption);
   line-height: 16px;
@@ -261,6 +280,7 @@ p {
   padding: 0 4px;
   border-bottom-width: 1px;
   background: none;
+  box-shadow: none;
   color: inherit;
   font-size: 11px;
 }
@@ -269,7 +289,7 @@ p {
    Outside Tauri (vite dev / preview) the page draws a stand-in for the native
    window: Windows 11 frame, corner radius and shadow. Tauri never sets .preview. */
 html.preview {
-  --desktop: light-dark(#dfe1e4, #141516);
+  --desktop: light-dark(#dbe2ec, #101319);
   background: var(--desktop);
   height: auto;
 }
@@ -285,18 +305,18 @@ html.preview #app {
   border-radius: var(--r-lg);
   background: var(--bg-window);
   box-shadow:
-    0 0 0 1px light-dark(rgb(0 0 0 / 0.12), rgb(255 255 255 / 0.1)),
-    0 8px 24px light-dark(rgb(0 0 0 / 0.16), rgb(0 0 0 / 0.5)),
-    0 2px 6px light-dark(rgb(0 0 0 / 0.06), rgb(0 0 0 / 0.3));
+    0 0 0 1px light-dark(rgb(15 23 42 / 0.12), rgb(255 255 255 / 0.1)),
+    0 12px 32px light-dark(rgb(15 23 42 / 0.16), rgb(0 0 0 / 0.52)),
+    0 2px 6px light-dark(rgb(15 23 42 / 0.06), rgb(0 0 0 / 0.3));
 }
 /* Simulated Mica: a heavily blurred, tinted wallpaper behind a translucent window. */
 html.preview.sim-mica {
   background:
-    radial-gradient(60% 80% at 15% 20%, light-dark(#c9d6cf, #213a33) 0%, transparent 70%),
-    radial-gradient(70% 70% at 85% 80%, light-dark(#e3d3c1, #3a2a1f) 0%, transparent 70%),
+    radial-gradient(60% 80% at 15% 20%, light-dark(#cde0ec, #122936) 0%, transparent 70%),
+    radial-gradient(70% 70% at 85% 80%, light-dark(#dcd8ec, #231e36) 0%, transparent 70%),
     var(--desktop);
 }
 html.preview.sim-mica #app {
-  background: light-dark(rgb(243 243 243 / 0.84), rgb(32 32 32 / 0.86));
+  background: light-dark(rgb(241 244 249 / 0.84), rgb(23 25 31 / 0.86));
   backdrop-filter: blur(60px) saturate(1.25);
 }

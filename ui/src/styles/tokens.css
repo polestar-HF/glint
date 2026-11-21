@@ -5,53 +5,66 @@
 :root {
   color-scheme: light dark;
 
-  /* ── Accent ───────────────────────────────────────────────────────────────
+  /* ── Accent (Prism Tactile) ───────────────────────────────────────────────
      --accent-base comes from config.ui.accent (light-theme value, also used by the
-     native overlay). The dark-theme accent is derived: same hue, lighter, calmer. */
-  --accent-base: #1e6ac5;
-  --accent: light-dark(var(--accent-base), oklch(from var(--accent-base) 0.76 calc(c * 0.72) h));
-  --accent-hover: color-mix(in srgb, var(--accent) 90%, transparent);
-  --on-accent: light-dark(#ffffff, #000000);
+     native overlay). The dark-theme accent is derived: same hue, crisp icy luminance. */
+  --accent-base: #0e8cb8;
+  --accent: light-dark(var(--accent-base), oklch(from var(--accent-base) 0.78 calc(c * 0.82) h));
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, transparent);
+  --accent-soft: light-dark(
+    color-mix(in srgb, var(--accent) 10%, transparent),
+    color-mix(in srgb, var(--accent) 15%, transparent)
+  );
+  --accent-border: light-dark(
+    color-mix(in srgb, var(--accent) 26%, transparent),
+    color-mix(in srgb, var(--accent) 34%, transparent)
+  );
+  --accent-glow: color-mix(in srgb, var(--accent) 22%, transparent);
+  --on-accent: light-dark(#ffffff, #091318);
 
   /* ── Surfaces ─────────────────────────────────────────────────────────────
      Window background is transparent so the Mica material shows through.
-     .no-mica (Windows 10, or the effect failed) swaps in the solid base. */
-  --bg-base: light-dark(#f3f3f3, #202020);
+     .no-mica (Windows 10, or the effect failed) swaps in the cool charcoal/mist base. */
+  --bg-base: light-dark(#f1f4f9, #17191f);
   --bg-window: transparent;
-  --bg-layer: light-dark(rgb(255 255 255 / 0.5), rgb(58 58 58 / 0.3));
-  --bg-card: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.051));
-  --bg-control: light-dark(rgb(255 255 255 / 0.7), rgb(255 255 255 / 0.061));
-  --bg-control-hover: light-dark(rgb(249 249 249 / 0.5), rgb(255 255 255 / 0.084));
-  --bg-control-pressed: light-dark(rgb(249 249 249 / 0.3), rgb(255 255 255 / 0.033));
-  --bg-control-input: light-dark(#ffffff, #1e1e1e);
-  --bg-subtle-hover: light-dark(rgb(0 0 0 / 0.037), rgb(255 255 255 / 0.061));
-  --bg-subtle-pressed: light-dark(rgb(0 0 0 / 0.024), rgb(255 255 255 / 0.042));
-  --bg-subtle-track: light-dark(rgb(0 0 0 / 0.024), rgb(0 0 0 / 0.1));
-  --bg-flyout: light-dark(#fcfcfc, #2c2c2c);
-  --bg-inverse: light-dark(#2b2b2b, #f0f0f0);
-  --text-inverse: light-dark(#ffffff, #1a1a1a);
-  --skeleton: light-dark(rgb(0 0 0 / 0.06), rgb(255 255 255 / 0.07));
+  --bg-layer: light-dark(rgb(246 249 253 / 0.62), rgb(25 28 36 / 0.52));
+  --bg-recessed: light-dark(rgb(15 23 42 / 0.038), rgb(0 0 0 / 0.24));
+  --bg-card: light-dark(rgb(255 255 255 / 0.84), rgb(34 38 47 / 0.72));
+  --bg-card-primary: light-dark(#ffffff, rgb(38 43 54 / 0.92));
+  --bg-control: light-dark(rgb(255 255 255 / 0.86), rgb(255 255 255 / 0.065));
+  --bg-control-hover: light-dark(#ffffff, rgb(255 255 255 / 0.095));
+  --bg-control-pressed: light-dark(rgb(241 245 249 / 0.75), rgb(255 255 255 / 0.04));
+  --bg-control-input: light-dark(#ffffff, #14171d);
+  --bg-subtle-hover: light-dark(rgb(15 23 42 / 0.045), rgb(255 255 255 / 0.068));
+  --bg-subtle-pressed: light-dark(rgb(15 23 42 / 0.028), rgb(255 255 255 / 0.045));
+  --bg-subtle-track: light-dark(rgb(15 23 42 / 0.045), rgb(0 0 0 / 0.22));
+  --bg-flyout: light-dark(#ffffff, #232731);
+  --bg-inverse: light-dark(#1d2129, #eef2f7);
+  --text-inverse: light-dark(#ffffff, #14171d);
+  --bg-error-soft: light-dark(rgb(196 43 28 / 0.06), rgb(255 153 164 / 0.09));
+  --stroke-error-soft: light-dark(rgb(196 43 28 / 0.22), rgb(255 153 164 / 0.26));
+  --skeleton: light-dark(rgb(15 23 42 / 0.07), rgb(255 255 255 / 0.08));
 
   /* ── Strokes ──────────────────────────────────────────────────────────── */
-  --stroke-divider: light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.084));
-  --stroke-card: light-dark(rgb(0 0 0 / 0.058), rgb(0 0 0 / 0.1));
-  --stroke-control: light-dark(rgb(0 0 0 / 0.058), rgb(255 255 255 / 0.07));
-  --stroke-control-bottom: light-dark(rgb(0 0 0 / 0.162), rgb(255 255 255 / 0.093));
-  --stroke-strong: light-dark(rgb(0 0 0 / 0.446), rgb(255 255 255 / 0.544));
-  --stroke-flyout: light-dark(rgb(0 0 0 / 0.094), rgb(0 0 0 / 0.36));
-  --focus-outer: light-dark(rgb(0 0 0 / 0.9), #ffffff);
+  --stroke-divider: light-dark(rgb(15 23 42 / 0.075), rgb(255 255 255 / 0.075));
+  --stroke-card: light-dark(rgb(15 23 42 / 0.08), rgb(255 255 255 / 0.085));
+  --stroke-control: light-dark(rgb(15 23 42 / 0.09), rgb(255 255 255 / 0.09));
+  --stroke-control-bottom: light-dark(rgb(15 23 42 / 0.16), rgb(255 255 255 / 0.12));
+  --stroke-strong: light-dark(rgb(15 23 42 / 0.36), rgb(255 255 255 / 0.44));
+  --stroke-flyout: light-dark(rgb(15 23 42 / 0.11), rgb(255 255 255 / 0.12));
+  --focus-outer: light-dark(var(--accent), var(--accent));
 
   /* ── Text ─────────────────────────────────────────────────────────────── */
-  --text-1: light-dark(rgb(0 0 0 / 0.896), #ffffff);
-  --text-quiet: light-dark(rgb(0 0 0 / 0.78), rgb(255 255 255 / 0.86));
-  --text-2: light-dark(rgb(0 0 0 / 0.606), rgb(255 255 255 / 0.786));
-  --text-3: light-dark(rgb(0 0 0 / 0.446), rgb(255 255 255 / 0.544));
-  --text-4: light-dark(rgb(0 0 0 / 0.361), rgb(255 255 255 / 0.363));
+  --text-1: light-dark(#111827, #f2f6fa);
+  --text-quiet: light-dark(#2c3748, #d7dfe9);
+  --text-2: light-dark(#516074, #9ca7b8);
+  --text-3: light-dark(#7d8b9e, #6d7788);
+  --text-4: light-dark(#a4b0c0, #4a5363);
 
   /* ── Status ───────────────────────────────────────────────────────────── */
-  --critical: light-dark(#c42b1c, #ff99a4);
-  --success: light-dark(#0f7b0f, #6ccb5f);
-  --caution: light-dark(#9d5d00, #e3b341);
+  --critical: light-dark(#c42b1c, #ff8f9b);
+  --success: light-dark(#0f7b3e, #5cd68c);
+  --caution: light-dark(#9d5d00, #e8b84b);
 
   /* ── Type (families: see the [lang] block below) ─────────────────────── */
   --font-cjk: 'Microsoft YaHei UI', 'Microsoft YaHei', 'Yu Gothic UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
@@ -70,21 +83,28 @@
   --sp-5: 20px;
   --sp-6: 24px;
   --sp-8: 32px;
-  /* Radii follow r = R − p from the outside in, never below 4. The window (Windows 11
-     draws 8) and everything floating on it share --r-lg; anything inset by ≥ 4 px
-     lands on --r-sm. Pills and circles use --r-pill with corner-shape: round. */
-  --r-lg: 8px; /* window, flyouts, toasts, settings page pane */
-  --r-md: 4px; /* settings cards: 8 − 28 page padding → floor 4 */
-  --r-sm: 4px; /* controls, menu items (8 − 4 flyout padding), keycaps, chips */
-  --r-pill: 999px; /* toggles, knobs, indicator bars, carets, scrollbar thumbs */
-  --gutter: 16px; /* popup content inset */
+  --r-lg: 10px; /* flyouts, toasts, settings content pane */
+  --r-md: 8px; /* tactile cards: popup sections & settings groups */
+  --r-sm: 6px; /* controls, menu items, nav pills, inputs */
+  --r-pill: 999px; /* toggles, knobs, language pills, indicator dots, scrollbars */
+  --gutter: 12px; /* popup content inset */
 
   /* ── Icons (qingicon duotone: back layer opacity) ─────────────────────── */
   --icon-tone: 0.45;
 
-  /* ── Elevation (flyouts only; surfaces use hairlines, not shadows) ─────── */
-  --shadow-flyout: 0 8px 16px light-dark(rgb(0 0 0 / 0.14), rgb(0 0 0 / 0.26));
-  --shadow-control: 0 1px 1px light-dark(rgb(0 0 0 / 0.04), rgb(0 0 0 / 0.12));
+  /* ── Elevation & Tactile Bevels ───────────────────────────────────────── */
+  --highlight-top: light-dark(inset 0 1px 0 rgb(255 255 255 / 0.92), inset 0 1px 0 rgb(255 255 255 / 0.07));
+  --highlight-primary-top: light-dark(
+    inset 0 1px 0 rgb(255 255 255 / 0.96),
+    inset 0 1px 0 color-mix(in srgb, var(--accent) 26%, rgb(255 255 255 / 0.08))
+  );
+  --shadow-card: light-dark(0 1px 2px rgb(15 23 42 / 0.05), 0 2px 8px rgb(0 0 0 / 0.22));
+  --shadow-primary-card: light-dark(
+    0 4px 14px color-mix(in srgb, var(--accent) 10%, rgb(15 23 42 / 0.06)),
+    0 6px 18px rgb(0 0 0 / 0.3)
+  );
+  --shadow-flyout: 0 10px 24px light-dark(rgb(15 23 42 / 0.14), rgb(0 0 0 / 0.42));
+  --shadow-control: 0 1px 2px light-dark(rgb(15 23 42 / 0.05), rgb(0 0 0 / 0.18));
 
   /* ── Motion ───────────────────────────────────────────────────────────── */
   --dur-1: 120ms; /* hover, color, exits */

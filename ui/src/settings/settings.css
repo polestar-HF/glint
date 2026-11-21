@@ -51,50 +51,53 @@ html.preview #app {
   display: flex;
   flex-direction: column;
   min-height: 0;
-  padding: 4px 4px 12px;
+  padding: 8px 8px 12px;
+}
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 10px 14px;
+}
+.nav-brand-name {
+  font-family: var(--font-display);
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
 }
 .nav-list {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 .nav-item {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 12px;
-  height: 36px;
-  padding: 0 12px;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
   border-radius: var(--r-sm);
-  color: var(--text-1);
-  transition: background-color var(--dur-1) var(--ease-std);
+  color: var(--text-2);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    color var(--dur-1) var(--ease-std),
+    box-shadow var(--dur-1) var(--ease-std);
 }
 .nav-item:hover {
   background: var(--bg-subtle-hover);
+  color: var(--text-1);
 }
 .nav-item:active {
   background: var(--bg-subtle-pressed);
 }
 .nav-item[aria-current='page'] {
-  background: var(--bg-subtle-hover);
-}
-.nav-item[aria-current='page']::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 10px;
-  bottom: 10px;
-  width: 3px;
-  border-radius: var(--r-pill);
-  corner-shape: round;
-  background: var(--accent);
-  animation: indicator-in var(--dur-2) var(--ease-out);
-}
-@keyframes indicator-in {
-  from {
-    transform: scaleY(0.4);
-    opacity: 0;
-  }
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 .nav-item:focus-visible {
   outline-offset: -2px;
@@ -105,7 +108,7 @@ html.preview #app {
   align-items: center;
   gap: 8px;
   margin-top: auto;
-  padding: 0 12px;
+  padding: 0 10px;
   height: 24px;
   font-family: var(--font-small);
   font-size: var(--fs-caption);
@@ -146,7 +149,10 @@ html.preview #app {
   background: var(--bg-control) padding-box;
   color: var(--text-1);
   font-size: 14px;
-  transition: background-color var(--dur-1) var(--ease-std);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    border-color var(--dur-1) var(--ease-std),
+    box-shadow var(--dur-1) var(--ease-std);
 }
 .field::placeholder {
   color: var(--text-3);
@@ -156,8 +162,8 @@ html.preview #app {
 }
 .field:focus {
   background-color: var(--bg-control-input);
-  border-bottom-color: var(--accent);
-  box-shadow: inset 0 -1px 0 var(--accent);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .field:focus-visible {
   outline: none;

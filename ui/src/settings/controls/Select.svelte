@@ -183,8 +183,11 @@
     border: 1px solid var(--stroke-control);
     border-bottom-color: var(--stroke-control-bottom);
     background: var(--bg-control) padding-box;
+    box-shadow: var(--shadow-control), var(--highlight-top);
     color: var(--text-1);
-    transition: background-color var(--dur-1) var(--ease-std);
+    transition:
+      background-color var(--dur-1) var(--ease-std),
+      border-color var(--dur-1) var(--ease-std);
   }
   .select:hover {
     background-color: var(--bg-control-hover);
@@ -192,6 +195,7 @@
   .select:active,
   .select[aria-expanded='true'] {
     background-color: var(--bg-control-pressed);
+    box-shadow: none;
   }
   .value {
     flex: 1;
@@ -213,7 +217,7 @@
     border-radius: var(--r-lg);
     border: 1px solid var(--stroke-flyout);
     background: var(--bg-flyout);
-    box-shadow: var(--shadow-flyout);
+    box-shadow: var(--shadow-flyout), var(--highlight-top);
     animation: list-in var(--dur-1) var(--ease-out);
   }
   .opt {
@@ -221,27 +225,22 @@
     display: flex;
     align-items: center;
     height: 32px;
-    padding: 0 12px;
+    padding: 0 10px;
     border-radius: var(--r-sm);
     white-space: nowrap;
     color: var(--text-1);
+    transition:
+      background-color var(--dur-1) var(--ease-std),
+      color var(--dur-1) var(--ease-std);
   }
   .opt.active {
     background: var(--bg-subtle-hover);
   }
   .opt[aria-selected='true'] {
-    background: var(--bg-subtle-hover);
-  }
-  .opt[aria-selected='true']::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 8px;
-    bottom: 8px;
-    width: 3px;
-    border-radius: var(--r-pill);
-    corner-shape: round;
-    background: var(--accent);
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-weight: 600;
+    box-shadow: inset 0 0 0 1px var(--accent-border);
   }
   @keyframes list-in {
     from {

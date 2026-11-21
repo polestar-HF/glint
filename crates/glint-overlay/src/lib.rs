@@ -64,7 +64,7 @@ impl Default for OverlayOptions {
     fn default() -> Self {
         Self {
             default_action: Action::Translate,
-            accent: 0x1E6AC5,
+            accent: 0x0E8CB8,
             snap_windows: true,
             show_magnifier: true,
         }

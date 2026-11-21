@@ -169,7 +169,7 @@
 
   function measure(): number {
     const natural =
-      (stripEl?.offsetHeight ?? 36) + 1 + (contentEl?.offsetHeight ?? 0) + (footerEl?.offsetHeight ?? 0);
+      (stripEl?.offsetHeight ?? 40) + 1 + (contentEl?.offsetHeight ?? 0) + (footerEl?.offsetHeight ?? 0);
     const cap = Math.floor((screen.availHeight || 900) * 0.7);
     return Math.min(Math.ceil(Math.max(natural, menuNeed)), cap);
   }
@@ -391,7 +391,7 @@
               <span class="grow"></span>
             {/if}
             {#if s.dirty}
-              <button class="text-btn" title="Ctrl+Enter" onclick={retranslate}>
+              <button class="text-btn retranslate-btn" title="Ctrl+Enter" onclick={retranslate}>
                 <Icon name="enter" />{t('popup.retranslate')}
               </button>
             {/if}
@@ -417,6 +417,7 @@
           <ResultSection
             {r}
             primary={i === 0}
+            multi={s.results.length > 1}
             {showTimings}
             lang={s.targetLang}
             freeEndpoint={isFreeEndpoint(r.engineId)}

@@ -93,12 +93,17 @@
 
 <Group title={t('ap.preview')}>
   <div class="preview" style:--content-size="{c.ui.fontSize}px">
-    <div class="pv-sec">
+    <div class="pv-sec pv-source">
       <div class="pv-label">{t('popup.source')}<span class="pv-meta">PaddleOCR · 86 ms</span></div>
       <p class="pv-text quiet" lang="en">{t('ap.previewSource')}</p>
     </div>
-    <div class="pv-sec">
-      <div class="pv-label">Google 翻译<span class="pv-meta">412 ms</span></div>
+    <div class="pv-sec pv-primary">
+      <div class="pv-label">
+        <span class="pv-dot" aria-hidden="true"></span>
+        <span>Google 翻译</span>
+        <span class="pv-badge">{t('tr.primary')}</span>
+        <span class="pv-meta">412 ms</span>
+      </div>
       <p class="pv-text primary" lang="zh-CN">{t('ap.previewTarget')}<span class="pv-caret"></span></p>
     </div>
   </div>
@@ -125,6 +130,7 @@
   .accent-controls {
     display: flex;
     align-items: center;
+    flex-wrap: wrap;
     gap: 12px;
   }
   .swatches {
@@ -132,7 +138,7 @@
     gap: 8px;
   }
   .swatch {
-    --c: light-dark(var(--sw), oklch(from var(--sw) 0.76 calc(c * 0.72) h));
+    --c: light-dark(var(--sw), oklch(from var(--sw) 0.78 calc(c * 0.82) h));
     display: grid;
     place-items: center;
     width: 24px;
@@ -140,11 +146,18 @@
     border-radius: var(--r-sm);
     background: var(--c);
     color: var(--on-accent);
-    box-shadow: inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.08), rgb(255 255 255 / 0.08));
-    transition: transform var(--dur-1) var(--ease-std);
+    box-shadow: inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.12));
+    transition:
+      transform var(--dur-1) var(--ease-std),
+      box-shadow var(--dur-1) var(--ease-std);
   }
   .swatch:hover {
     transform: scale(1.08);
+  }
+  .swatch[aria-checked='true'] {
+    box-shadow:
+      0 0 0 2px var(--bg-card-primary),
+      0 0 0 3.5px var(--c);
   }
   .hex {
     position: relative;
@@ -161,42 +174,80 @@
     top: 9px;
     width: 14px;
     height: 14px;
-    border-radius: var(--r-sm);
-    background: light-dark(var(--sw), oklch(from var(--sw) 0.76 calc(c * 0.72) h));
-    box-shadow: inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.1), rgb(255 255 255 / 0.1));
+    border-radius: 4px;
+    background: light-dark(var(--sw), oklch(from var(--sw) 0.78 calc(c * 0.82) h));
+    box-shadow: inset 0 0 0 1px light-dark(rgb(0 0 0 / 0.12), rgb(255 255 255 / 0.14));
     pointer-events: none;
   }
   .hex.invalid .field {
-    border-bottom-color: var(--critical);
-    box-shadow: inset 0 -1px 0 var(--critical);
+    border-color: var(--critical);
+    box-shadow: 0 0 0 2px var(--bg-error-soft);
   }
 
-  /* A miniature of the popup's result sections at the chosen size. */
+  /* A miniature of the popup's Prism Tactile card stack at the chosen size. */
   .preview {
     --lh: round(nearest, calc(var(--content-size) * 1.6), 2px);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    background: var(--bg-layer);
   }
   .pv-sec {
-    padding: 8px 16px 12px;
+    border-radius: var(--r-md);
+    border: 1px solid var(--stroke-card);
   }
-  .pv-sec + .pv-sec {
-    border-top: 1px solid var(--stroke-divider);
+  .pv-source {
+    padding: 8px 12px 10px;
+    background: var(--bg-recessed);
+    border-color: var(--stroke-divider);
+  }
+  .pv-primary {
+    padding: 10px 12px 12px;
+    background: var(--bg-card-primary);
+    border-color: var(--accent-border);
+    box-shadow: var(--shadow-primary-card), var(--highlight-primary-top);
   }
   .pv-label {
     display: flex;
-    gap: 8px;
-    height: 24px;
+    gap: 6px;
+    height: 22px;
     align-items: center;
     font-family: var(--font-small);
     font-size: var(--fs-caption);
     font-weight: 600;
     color: var(--text-2);
   }
+  .pv-primary .pv-label {
+    color: var(--text-1);
+  }
+  .pv-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
+    background: var(--accent);
+    box-shadow: 0 0 0 2.5px var(--accent-glow);
+  }
+  .pv-badge {
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
+    background: var(--accent-soft);
+    color: var(--accent);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+  }
   .pv-meta {
     font-weight: 400;
     color: var(--text-3);
   }
   .pv-text {
-    margin-top: 2px;
+    margin-top: 4px;
     font-size: var(--content-size);
     line-height: var(--lh);
   }
@@ -207,6 +258,7 @@
     --s: calc(var(--content-size) + 1px);
     font-size: var(--s);
     line-height: round(nearest, calc(var(--s) * 1.6), 2px);
+    color: var(--text-1);
   }
   .pv-caret {
     display: inline-block;

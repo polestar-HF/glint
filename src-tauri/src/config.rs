@@ -108,7 +108,7 @@ impl Default for Ui {
         Self {
             theme: "system".into(),
             font_size: 14,
-            accent: "#1E6AC5".into(),
+            accent: "#0E8CB8".into(),
             close_on_blur: false,
             show_timings: false,
             popup_idle_destroy_secs: 600,
@@ -141,7 +141,7 @@ impl Ui {
                 return v;
             }
         }
-        0x1E6AC5
+        0x0E8CB8
     }
 }
 
@@ -212,6 +212,6 @@ mod tests {
         };
         assert_eq!(ui.accent_rgb(), 0xFF8800);
         ui.accent = "nope".into();
-        assert_eq!(ui.accent_rgb(), 0x1E6AC5);
+        assert_eq!(ui.accent_rgb(), 0x0E8CB8);
     }
 }

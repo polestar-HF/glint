@@ -35,23 +35,24 @@
 <style>
   .seg {
     display: inline-flex;
-    gap: 4px;
-    padding: 4px;
+    gap: 3px;
+    padding: 3px;
     border-radius: var(--r-sm);
-    border: 1px solid var(--stroke-control);
-    background: var(--bg-subtle-track);
+    border: 1px solid var(--stroke-divider);
+    background: var(--bg-recessed);
   }
   button {
-    height: 22px;
+    height: 24px;
     min-width: 64px;
     padding: 0 12px;
-    border-radius: var(--r-sm);
+    border-radius: 5px;
     font-size: 13px;
     color: var(--text-2);
     border: 1px solid transparent;
     transition:
       background-color var(--dur-1) var(--ease-std),
-      color var(--dur-1) var(--ease-std);
+      color var(--dur-1) var(--ease-std),
+      box-shadow var(--dur-1) var(--ease-std);
   }
   button:hover {
     color: var(--text-1);
@@ -59,9 +60,10 @@
   }
   button[aria-checked='true'] {
     color: var(--text-1);
-    background: light-dark(#ffffff, rgb(255 255 255 / 0.09));
-    border-color: var(--stroke-control);
-    box-shadow: var(--shadow-control);
+    font-weight: 500;
+    background: var(--bg-card-primary);
+    border-color: var(--stroke-card);
+    box-shadow: var(--shadow-control), var(--highlight-top);
   }
   button:focus-visible {
     outline-offset: 0;

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import BrandMark from '../../lib/BrandMark.svelte';
   import Icon from '../../lib/Icon.svelte';
   import { api } from '../../lib/ipc';
   import { t, type MessageKey } from '../../lib/i18n.svelte';
@@ -27,9 +28,16 @@
 </script>
 
 <div class="hero">
-  <h1 class="wordmark">Glint</h1>
-  <div class="tagline">{t('about.tagline')}</div>
-  {#if version}<div class="version tnum">{t('about.version', { v: version })}</div>{/if}
+  <div class="hero-mark">
+    <BrandMark size={52} />
+  </div>
+  <div class="hero-text">
+    <div class="hero-head">
+      <h1 class="wordmark">Glint</h1>
+      {#if version}<span class="version tnum">{t('about.version', { v: version })}</span>{/if}
+    </div>
+    <div class="tagline">{t('about.tagline')}</div>
+  </div>
 </div>
 
 <Group>
@@ -61,14 +69,31 @@
 
 <style>
   .hero {
-    margin: -2px 2px 24px;
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin: 0 2px 24px;
+  }
+  .hero-mark {
+    flex: none;
+    display: grid;
+    place-items: center;
+    filter: drop-shadow(0 6px 14px light-dark(rgb(15 23 42 / 0.14), rgb(0 0 0 / 0.36)));
+  }
+  .hero-text {
+    min-width: 0;
+  }
+  .hero-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
   }
   .wordmark {
     font-family: var(--font-display);
     font-size: var(--fs-title);
-    line-height: 36px;
+    line-height: 34px;
     font-weight: 600;
-    letter-spacing: -0.01em;
+    letter-spacing: -0.02em;
     color: var(--text-1);
   }
   .tagline {
@@ -76,11 +101,19 @@
     color: var(--text-2);
   }
   .version {
-    margin-top: 2px;
+    display: inline-flex;
+    align-items: center;
+    height: 20px;
+    padding: 0 8px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
+    background: var(--accent-soft);
+    border: 1px solid var(--accent-border);
     font-family: var(--font-small);
-    font-size: var(--fs-caption);
-    line-height: 16px;
-    color: var(--text-3);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
+    color: var(--accent);
   }
   .link-row {
     display: flex;

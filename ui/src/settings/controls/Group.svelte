@@ -45,6 +45,7 @@
     border-radius: var(--r-md);
     border: 1px solid var(--stroke-card);
     background: var(--bg-card) padding-box;
+    box-shadow: var(--shadow-card), var(--highlight-top);
     overflow: clip;
   }
   .group-body > :global(* + *) {

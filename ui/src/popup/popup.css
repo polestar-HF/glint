@@ -23,19 +23,23 @@ html.preview-hidden #app {
 }
 
 /* ── Title strip: on Mica, draggable ──────────────────────────────────────
-   Strip padding 8 + 32px icon buttons (16px glyph inset 8) put the close glyph on
-   the same 16px content edge as the section icons below, all on the 4px grid. */
+   40px header with pill language selectors and subtle action icons aligned to
+   the 12px card gutter below. */
 .strip {
   flex: none;
   display: flex;
   align-items: center;
   gap: 4px;
-  height: 36px;
-  padding: 0 8px;
+  height: 40px;
+  padding: 0 10px;
 }
 .strip .icon-btn {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
+}
+.strip .icon-btn.swap {
+  width: 26px;
+  height: 26px;
 }
 .strip > .grow {
   align-self: stretch;
@@ -44,13 +48,15 @@ html.preview-hidden #app {
 .strip-title {
   display: flex;
   align-items: baseline;
-  gap: 8px;
-  padding-left: 8px;
+  gap: 6px;
+  padding-left: 4px;
   font-size: 13px;
+  font-weight: 600;
   color: var(--text-1);
   white-space: nowrap;
 }
 .strip-sub {
+  font-weight: 400;
   color: var(--text-3);
 }
 .strip-sub::before {
@@ -69,22 +75,38 @@ html.preview-hidden #app {
   align-items: center;
   gap: 4px;
   min-width: 0;
-  max-width: 156px;
-  height: 28px;
-  padding: 0 4px 0 8px;
-  border-radius: var(--r-sm);
-  font-size: 13px;
+  max-width: 152px;
+  height: 26px;
+  padding: 0 6px 0 10px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
+  border: 1px solid var(--stroke-card);
+  background: var(--bg-control) padding-box;
+  box-shadow: var(--shadow-control), var(--highlight-top);
+  font-size: 12.5px;
+  font-weight: 500;
   color: var(--text-1);
-  transition: background-color var(--dur-1) var(--ease-std);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    border-color var(--dur-1) var(--ease-std),
+    color var(--dur-1) var(--ease-std);
 }
 .lang-btn:hover {
-  background: var(--bg-subtle-hover);
+  background: var(--bg-control-hover);
+  border-color: var(--stroke-control-bottom);
 }
 .lang-btn[aria-expanded='true'] {
-  background: var(--bg-subtle-pressed);
+  background: var(--accent-soft);
+  border-color: var(--accent-border);
+  color: var(--accent);
+  box-shadow: none;
 }
 .lang-btn > .icon {
   color: var(--text-3);
+}
+.lang-btn[aria-expanded='true'] > .icon,
+.lang-btn[aria-expanded='true'] .lang-auto {
+  color: var(--accent);
 }
 .lang-name {
   overflow: hidden;
@@ -93,7 +115,8 @@ html.preview-hidden #app {
 }
 .lang-auto {
   font-family: var(--font-small);
-  font-size: var(--fs-caption);
+  font-size: 11px;
+  font-weight: 400;
   color: var(--text-3);
 }
 
@@ -101,18 +124,18 @@ html.preview-hidden #app {
 .lang-menu {
   position: absolute;
   z-index: 20;
-  top: 38px;
-  left: 8px;
-  width: min(calc(100% - 16px), 384px);
-  padding: 4px;
+  top: 42px;
+  left: 10px;
+  width: min(calc(100% - 20px), 388px);
+  padding: 6px;
   border-radius: var(--r-lg);
   border: 1px solid var(--stroke-flyout);
   background: var(--bg-flyout);
-  box-shadow: var(--shadow-flyout);
+  box-shadow: var(--shadow-flyout), var(--highlight-top);
   animation: flyout-in var(--dur-2) var(--ease-out);
 }
 .lang-menu-title {
-  padding: 4px 8px;
+  padding: 4px 8px 6px;
   font-family: var(--font-small);
   font-size: var(--fs-caption);
   line-height: 16px;
@@ -125,32 +148,26 @@ html.preview-hidden #app {
 }
 .lang-item {
   position: relative;
-  height: 32px;
-  padding: 0 8px 0 12px;
+  height: 30px;
+  padding: 0 10px;
   border-radius: var(--r-sm);
   font-size: 13px;
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  transition: background-color var(--dur-1) var(--ease-std);
+  transition:
+    background-color var(--dur-1) var(--ease-std),
+    color var(--dur-1) var(--ease-std);
 }
 .lang-item:hover {
   background: var(--bg-subtle-hover);
 }
 .lang-item[aria-selected='true'] {
-  background: var(--bg-subtle-hover);
-}
-.lang-item[aria-selected='true']::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 9px;
-  bottom: 9px;
-  width: 3px;
-  border-radius: var(--r-pill);
-  corner-shape: round;
-  background: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+  box-shadow: inset 0 0 0 1px var(--accent-border);
 }
 .lang-item:focus-visible {
   outline-offset: -2px;
@@ -163,7 +180,7 @@ html.preview-hidden #app {
   }
 }
 
-/* ── Body: content layer ──────────────────────────────────────────────────── */
+/* ── Body: tactile card stack ─────────────────────────────────────────────── */
 .body {
   flex: 1 1 auto;
   min-height: 0;
@@ -175,26 +192,84 @@ html.preview-hidden #app {
 .content {
   display: flex;
   flex-direction: column;
+  gap: 8px;
+  padding: 10px var(--gutter) 12px;
 }
 
 .sec {
   position: relative;
-  padding: 8px var(--gutter) 12px;
-}
-.sec + .sec {
-  border-top: 1px solid var(--stroke-divider);
+  padding: 8px 12px 10px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--stroke-card);
+  transition:
+    border-color var(--dur-1) var(--ease-std),
+    background-color var(--dur-1) var(--ease-std),
+    box-shadow var(--dur-1) var(--ease-std),
+    opacity var(--dur-2) var(--ease-std);
 }
 .sec.collapsed {
-  padding-bottom: 8px;
+  padding-top: 7px;
+  padding-bottom: 7px;
 }
 
-/* Icons bleed 4px into the gutter so their glyphs, not their hit areas, align. */
+/* Source card: softly recessed container so results lift off the canvas above it. */
+.sec.source {
+  background: var(--bg-recessed);
+  border-color: var(--stroke-divider);
+}
+.sec.source:focus-within {
+  background: var(--bg-card);
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+/* Result cards: tactile bevelled surface; primary lifts with prism-cyan halo. */
+.sec.result {
+  background: var(--bg-card) padding-box;
+  border-color: var(--stroke-card);
+  box-shadow: var(--shadow-card), var(--highlight-top);
+}
+.sec.result.primary {
+  padding: 10px 12px 12px;
+  background: var(--bg-card-primary) padding-box;
+  border-color: var(--accent-border);
+  box-shadow: var(--shadow-primary-card), var(--highlight-primary-top);
+}
+.sec.result.primary.collapsed {
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.sec.result.has-error {
+  background: var(--bg-error-soft) padding-box;
+  border-color: var(--stroke-error-soft);
+  box-shadow: none;
+}
+
+/* Icons bleed 4px right so their glyphs align cleanly with card padding. */
 .sec-head {
   display: flex;
   align-items: center;
-  gap: 8px;
-  height: 24px;
+  gap: 6px;
+  height: 22px;
   margin-right: -4px;
+}
+.status-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
+  background: var(--accent);
+  box-shadow: 0 0 0 2.5px var(--accent-glow);
+}
+.status-dot.live {
+  animation: dot-pulse 1.3s var(--ease-std) infinite;
+}
+@keyframes dot-pulse {
+  50% {
+    opacity: 0.45;
+    box-shadow: 0 0 0 4px var(--accent-soft);
+  }
 }
 .sec-label {
   flex: none;
@@ -207,6 +282,24 @@ html.preview-hidden #app {
   line-height: 16px;
   font-weight: 600;
   color: var(--text-2);
+}
+.sec.result.primary .sec-label {
+  color: var(--text-1);
+}
+.primary-badge {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--font-small);
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
 }
 .meta {
   flex: none;
@@ -228,6 +321,8 @@ html.preview-hidden #app {
 }
 .sec-actions {
   display: flex;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
   opacity: 0;
   transition: opacity var(--dur-1) var(--ease-std);
@@ -240,11 +335,31 @@ html.preview-hidden #app {
 .sec-head .text-btn {
   margin-right: 2px;
 }
+.retranslate-btn {
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
+  border: 1px solid var(--accent-border);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-weight: 600;
+}
+.retranslate-btn:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--on-accent);
+}
+.retranslate-btn:active {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  color: var(--on-accent);
+}
 
 /* v0.2 timings line: a second, quieter meta row under the source header. Parts never
    break inside; the line wraps between them. */
 .timings {
-  margin: -2px 0 4px;
+  margin: 0 0 4px;
   font-family: var(--font-small);
   font-size: var(--fs-caption);
   line-height: 16px;
@@ -258,9 +373,6 @@ html.preview-hidden #app {
 }
 
 /* While the source is edited, the old translations step back until re-translated. */
-.result {
-  transition: opacity var(--dur-2) var(--ease-std);
-}
 .stale .result {
   opacity: 0.5;
 }
@@ -268,7 +380,7 @@ html.preview-hidden #app {
 /* Content text. The primary engine reads a step louder than the rest. */
 .text {
   display: block;
-  margin-top: 2px;
+  margin-top: 4px;
   font-family: var(--font-content);
   font-size: var(--content-size);
   line-height: var(--content-lh);
@@ -307,13 +419,8 @@ textarea.src-text {
 textarea.src-text:focus {
   color: var(--text-1);
 }
-/* Editing is signalled by the caret, brighter text and a faint wash — not a box. */
 textarea.src-text:focus-visible {
   outline: none;
-}
-.sec.source:focus-within,
-.ocr-sec:focus-within {
-  background: light-dark(rgb(0 0 0 / 0.018), rgb(255 255 255 / 0.022));
 }
 
 /* Streaming caret: a thin accent bar that breathes, never a block cursor. */
@@ -338,7 +445,7 @@ textarea.src-text:focus-visible {
 .sk {
   display: flex;
   flex-direction: column;
-  margin-top: 2px;
+  margin-top: 4px;
 }
 .sk-line {
   display: flex;
@@ -369,7 +476,7 @@ textarea.src-text:focus-visible {
   align-items: center;
   gap: 8px;
   min-height: 24px;
-  margin: 2px -8px 0 0;
+  margin: 4px -4px 0 0;
   font-size: 13px;
   line-height: 20px;
   color: var(--text-2);
@@ -397,9 +504,17 @@ textarea.src-text:focus-visible {
 
 /* ── OCR mode ─────────────────────────────────────────────────────────────── */
 .ocr-sec {
-  padding: 12px var(--gutter);
+  padding: 10px 12px 12px;
+  background: var(--bg-card-primary) padding-box;
+  border-color: var(--stroke-card);
+  box-shadow: var(--shadow-card), var(--highlight-top);
+}
+.ocr-sec:focus-within {
+  border-color: var(--accent-border);
+  box-shadow: 0 0 0 2px var(--accent-soft);
 }
 .ocr-sec textarea.src-text {
+  margin-top: 0;
   color: var(--text-1);
 }
 .foot {
@@ -407,8 +522,8 @@ textarea.src-text:focus-visible {
   display: flex;
   align-items: center;
   gap: 8px;
-  height: 36px;
-  padding: 0 8px 0 var(--gutter);
+  height: 38px;
+  padding: 0 10px 0 var(--gutter);
   border-top: 1px solid var(--stroke-divider);
 }
 .foot .text-btn:disabled {
@@ -424,17 +539,18 @@ textarea.src-text:focus-visible {
   bottom: 12px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   height: 28px;
-  padding: 0 12px 0 8px;
-  border-radius: var(--r-lg);
+  padding: 0 12px 0 10px;
+  border-radius: var(--r-pill);
+  corner-shape: round;
   background: var(--bg-inverse);
   color: var(--text-inverse);
   font-family: var(--font-small);
   font-size: var(--fs-caption);
   line-height: 16px;
   white-space: nowrap;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 0.18);
+  box-shadow: 0 4px 14px rgb(0 0 0 / 0.22);
   pointer-events: none;
   opacity: 0;
   transform: translate(-50%, 4px);

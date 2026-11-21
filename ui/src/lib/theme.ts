@@ -4,10 +4,11 @@
 import { api } from './ipc';
 import type { Config } from './types';
 
-export const DEFAULT_ACCENT = '#1E6AC5';
+export const DEFAULT_ACCENT = '#0E8CB8';
 const CACHE_KEY = 'glint.ui';
 
 export const ACCENTS = [
+  { id: 'prism', hex: '#0E8CB8' },
   { id: 'ink', hex: '#1E6AC5' },
   { id: 'teal', hex: '#017B80' },
   { id: 'pine', hex: '#307E4B' },

@@ -313,8 +313,8 @@
   }
   .engine-name {
     display: flex;
-    align-items: baseline;
-    gap: 8px;
+    align-items: center;
+    gap: 6px;
     font-size: 14px;
     line-height: 20px;
     color: var(--text-1);
@@ -323,8 +323,18 @@
     color: var(--text-2);
   }
   .primary-mark {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    height: 18px;
+    padding: 0 6px;
+    border-radius: var(--r-pill);
+    corner-shape: round;
+    background: var(--accent-soft);
     font-family: var(--font-small);
-    font-size: var(--fs-caption);
+    font-size: 11px;
+    line-height: 1;
+    font-weight: 600;
     color: var(--accent);
   }
   .engine-title {
@@ -338,9 +348,6 @@
     font-family: var(--font-small);
     font-size: var(--fs-caption);
     color: var(--text-3);
-  }
-  .primary-mark {
-    flex: none;
   }
   .engine-sub {
     overflow: hidden;

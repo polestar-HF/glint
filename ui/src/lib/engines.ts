@@ -226,7 +226,7 @@ export function defaultConfig(): Config {
         eng('baidu', 'baidu', false),
       ],
     },
-    ui: { theme: 'system', fontSize: 14, accent: '#1E6AC5', closeOnBlur: false, popupIdleDestroySecs: 600, showTimings: false },
+    ui: { theme: 'system', fontSize: 14, accent: '#0E8CB8', closeOnBlur: false, popupIdleDestroySecs: 600, showTimings: false },
     overlay: { snapWindows: true, magnifier: true },
   };
 }
