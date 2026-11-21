@@ -365,3 +365,50 @@ fn angle_classifier_fixes_upside_down_text_and_keeps_upright_text() {
         assert!(got.contains(&l), "{l:?} missing from {got:?}");
     }
 }
+
+#[test]
+#[ignore = "needs models and ONNX Runtime (see tests/fixtures.rs)"]
+fn optimized_model_cache_reloads_and_recovers_from_corruption() {
+    let dir = std::env::temp_dir().join(format!("glint-ocr-cache-test-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    let opts = || PaddleOptions {
+        cache_dir: Some(dir.clone()),
+        ..paddle_options()
+    };
+
+    // 1. Cold load populates cache.
+    let t0 = Instant::now();
+    let ocr1 = PaddleOcr::load(&model_dir(), opts()).expect("cold cached load");
+    let cold_ms = t0.elapsed().as_secs_f64() * 1e3;
+    let img = image("en_paragraph");
+    let r1 = ocr1.recognize(&img, &OcrOptions::default()).expect("rec 1");
+    drop(ocr1);
+
+    let cached_files: Vec<PathBuf> = std::fs::read_dir(&dir)
+        .expect("cache dir created")
+        .filter_map(|e| e.ok().map(|e| e.path()))
+        .filter(|p| p.extension().is_some_and(|ext| ext == "onnx"))
+        .collect();
+    assert_eq!(
+        cached_files.len(),
+        2,
+        "expected det + rec cached models, got {cached_files:?}"
+    );
+
+    // 2. Warm reload hits cache, preserves embedded dictionary and produces identical output.
+    let t1 = Instant::now();
+    let ocr2 = PaddleOcr::load(&model_dir(), opts()).expect("warm cached load");
+    let warm_ms = t1.elapsed().as_secs_f64() * 1e3;
+    let r2 = ocr2.recognize(&img, &OcrOptions::default()).expect("rec 2");
+    assert_eq!(r1.text, r2.text, "cached model must produce identical OCR");
+    drop(ocr2);
+    println!("model load: uncached {cold_ms:.1} ms -> cached {warm_ms:.1} ms");
+
+    // 3. Corrupted cache file is automatically discarded and rebuilt.
+    std::fs::write(&cached_files[0], b"not an onnx model").expect("corrupt cache");
+    let ocr3 = PaddleOcr::load(&model_dir(), opts()).expect("recover from corrupt cache");
+    let r3 = ocr3.recognize(&img, &OcrOptions::default()).expect("rec 3");
+    assert_eq!(r1.text, r3.text);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}

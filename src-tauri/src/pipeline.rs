@@ -1,10 +1,10 @@
 //! Capture → select → OCR → translate.
 
 use std::sync::atomic::Ordering;
-use std::sync::mpsc::Sender;
+use std::sync::mpsc::{RecvTimeoutError, Sender};
 use std::time::{Duration, Instant};
 
-use glint_overlay::{Action, Outcome, OverlayOptions, OverlayStats, Selection};
+use glint_overlay::{Action, CaptureOverlayStats, Outcome, OverlayOptions, Selection};
 use glint_translate::{EngineEvent, TranslateRequest};
 use tauri::{AppHandle, Emitter, Manager};
 use tauri_plugin_clipboard_manager::ClipboardExt;
@@ -13,6 +13,10 @@ use crate::perf::{EngineSample, MonitorInfo, Sample};
 use crate::popup::{self, Anchor};
 use crate::session::*;
 use crate::AppState;
+
+/// Release parked hidden overlay windows and GPU surfaces after 5 minutes of inactivity so
+/// idle tray memory stays under budget.
+const OVERLAY_IDLE_RELEASE: Duration = Duration::from_secs(300);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CaptureMode {
@@ -39,33 +43,58 @@ pub fn spawn_overlay_worker(app: AppHandle) -> std::io::Result<Sender<OverlayJob
     std::thread::Builder::new()
         .name("glint-overlay".into())
         .spawn(move || {
-            for job in rx {
+            let mut has_warm_surfaces = false;
+            loop {
+                let job = if has_warm_surfaces {
+                    match rx.recv_timeout(OVERLAY_IDLE_RELEASE) {
+                        Ok(job) => job,
+                        Err(RecvTimeoutError::Timeout) => {
+                            glint_overlay::release_cached_resources();
+                            has_warm_surfaces = false;
+                            continue;
+                        }
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    }
+                } else {
+                    match rx.recv() {
+                        Ok(job) => job,
+                        Err(_) => break,
+                    }
+                };
+
                 if job.popup_was_visible {
-                    // Give DWM a frame to actually remove the popup before BitBlt.
-                    std::thread::sleep(Duration::from_millis(40));
+                    // Wait one DWM composition frame (~6–16 ms) so the popup is gone before BitBlt.
+                    glint_overlay::wait_for_dwm_frame();
                 }
                 let capture_started = Instant::now();
-                let frames = glint_overlay::capture_all();
-                let captured_at = Instant::now();
-                let mut stats = OverlayStats::default();
-                let outcome = frames.and_then(|frames| {
-                    let monitors = frames
+                let mut stats = CaptureOverlayStats::default();
+                let outcome = glint_overlay::capture_and_select(&job.opts, &mut stats);
+                has_warm_surfaces = outcome.is_ok();
+
+                let state = app.state::<AppState>();
+                if !stats.monitors.is_empty() {
+                    let monitors = stats
+                        .monitors
                         .iter()
-                        .map(|f| MonitorInfo {
-                            width: f.rect.width,
-                            height: f.rect.height,
-                            scale: f.scale,
+                        .map(|&(width, height, scale)| MonitorInfo {
+                            width,
+                            height,
+                            scale,
                         })
                         .collect();
-                    app.state::<AppState>().perf.set_monitors(monitors);
-                    glint_overlay::select_region_with_stats(frames, &job.opts, &mut stats)
-                });
-                let state = app.state::<AppState>();
+                    state.perf.set_monitors(monitors);
+                }
                 state.capturing.store(false, Ordering::SeqCst);
+
+                let captured_at = stats.captured_at.unwrap_or_else(Instant::now);
                 let timings = CaptureTimings {
-                    hotkey_to_overlay_ms: stats.shown_at.map(|t| ms(t - job.requested_at)),
-                    capture_ms: ms(captured_at - capture_started),
-                    overlay_ms: stats.shown_at.map(|t| ms(t - captured_at)),
+                    hotkey_to_overlay_ms: stats
+                        .shown_at
+                        .map(|t| ms(t.saturating_duration_since(job.requested_at))),
+                    capture_ms: ms(captured_at.saturating_duration_since(capture_started)),
+                    overlay_ms: stats
+                        .shown_at
+                        .map(|t| ms(t.saturating_duration_since(captured_at))),
                 };
                 match outcome {
                     Ok(Outcome::Selected(sel)) => run_session(&app, sel, timings, job.requested_at),
@@ -209,6 +238,7 @@ fn run_session(app: &AppHandle, sel: Selection, timings: CaptureTimings, request
         };
         // Recognition proper; waiting for a (pre)load is accounted for separately.
         sample.ocr = Some(stage.map_or(elapsed_ms, |t| ms(t.total)) as f64);
+        sample.ocr_wall = Some(elapsed_ms as f64);
         sample.ocr_cold = load.is_some();
         sample.ocr_load = load.map(|d| ms(d) as f64);
         sample.det = ocr_timings.det_ms.map(|v| v as f64);
@@ -396,6 +426,7 @@ async fn translate_with(
                     elapsed: t.elapsed_ms.map(|v| v as f64),
                     first_token: t.first_token_ms.map(|v| v as f64),
                     error: t.status == Status::Error,
+                    error_code: t.code.map(str::to_string),
                 })
                 .collect()
         })

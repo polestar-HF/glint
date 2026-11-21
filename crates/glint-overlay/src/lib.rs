@@ -127,6 +127,17 @@ pub struct OverlayStats {
     pub shown_at: Option<std::time::Instant>,
 }
 
+/// Timing and monitor metadata of one combined capture + overlay run.
+#[derive(Debug, Clone, Default)]
+pub struct CaptureOverlayStats {
+    /// When [`capture_all`] completed.
+    pub captured_at: Option<std::time::Instant>,
+    /// When the overlay became visible on screen; `None` if it never did.
+    pub shown_at: Option<std::time::Instant>,
+    /// `(width, height, scale)` of every captured monitor.
+    pub monitors: Vec<(u32, u32, f32)>,
+}
+
 /// [`select_region`], also reporting when the overlay became visible.
 pub fn select_region_with_stats(
     frames: Vec<MonitorFrame>,
@@ -134,6 +145,26 @@ pub fn select_region_with_stats(
     stats: &mut OverlayStats,
 ) -> Result<Outcome> {
     imp::select_region(frames, opts, stats)
+}
+
+/// Captures every monitor and snapshots snap-target windows in parallel, then opens the
+/// selection overlay (reusing thread-local warm D2D/Win32 surfaces when available).
+pub fn capture_and_select(
+    opts: &OverlayOptions,
+    stats: &mut CaptureOverlayStats,
+) -> Result<Outcome> {
+    imp::capture_and_select(opts, stats)
+}
+
+/// Releases cached overlay windows and GPU surfaces parked on the calling thread.
+/// Call when the overlay worker has been idle to keep tray RAM low.
+pub fn release_cached_resources() {
+    imp::release_cached_resources()
+}
+
+/// Waits for one DWM composition frame (e.g. after hiding a popup window) before capturing.
+pub fn wait_for_dwm_frame() {
+    imp::wait_for_dwm_frame()
 }
 
 #[cfg(not(windows))]
@@ -149,6 +180,11 @@ mod imp {
     ) -> Result<Outcome> {
         Err(OverlayError::Unsupported)
     }
+    pub fn capture_and_select(_: &OverlayOptions, _: &mut CaptureOverlayStats) -> Result<Outcome> {
+        Err(OverlayError::Unsupported)
+    }
+    pub fn release_cached_resources() {}
+    pub fn wait_for_dwm_frame() {}
 }
 
 #[cfg(windows)]
@@ -163,5 +199,41 @@ mod imp {
         stats: &mut OverlayStats,
     ) -> Result<Outcome> {
         crate::overlay::select_region(frames, opts, stats)
+    }
+    pub fn capture_and_select(
+        opts: &OverlayOptions,
+        stats: &mut CaptureOverlayStats,
+    ) -> Result<Outcome> {
+        // Run window-snap enumeration concurrently with screen capture so DWM attribute
+        // queries never add to the critical path before the overlay appears.
+        let (frames, targets) = std::thread::scope(|s| {
+            let snap_handle = if opts.snap_windows {
+                Some(s.spawn(|| {
+                    let _dpi = crate::win::ThreadDpiScope::per_monitor_v2();
+                    crate::overlay::snap::snapshot()
+                }))
+            } else {
+                None
+            };
+            let frames = crate::capture::capture_all();
+            let targets = snap_handle.and_then(|h| h.join().ok()).unwrap_or_default();
+            (frames, targets)
+        });
+        let frames = frames?;
+        stats.captured_at = Some(std::time::Instant::now());
+        stats.monitors = frames
+            .iter()
+            .map(|f| (f.rect.width, f.rect.height, f.scale))
+            .collect();
+        let mut ov = OverlayStats::default();
+        let out = crate::overlay::select_region_with_targets(frames, targets, opts, &mut ov);
+        stats.shown_at = ov.shown_at;
+        out
+    }
+    pub fn release_cached_resources() {
+        crate::overlay::release_cached_resources();
+    }
+    pub fn wait_for_dwm_frame() {
+        crate::capture::wait_for_dwm_frame();
     }
 }

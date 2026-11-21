@@ -21,6 +21,10 @@ pub struct Sample {
     pub overlay: Option<f64>,
     /// Recognition time, excluding any model load.
     pub ocr: Option<f64>,
+    /// Actual wall-clock wait after selection finished (includes only the portion of model
+    /// loading that did not finish during the hotkey-time preload).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ocr_wall: Option<f64>,
     /// The model was loaded for this capture (first use or after idle unload).
     pub ocr_cold: bool,
     pub ocr_load: Option<f64>,
@@ -37,6 +41,9 @@ pub struct EngineSample {
     pub elapsed: Option<f64>,
     pub first_token: Option<f64>,
     pub error: bool,
+    /// Stable error category (`rate_limited`, `network`, `timeout`, `auth`, ...).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_code: Option<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -63,6 +70,9 @@ pub struct EngineStat {
     pub engine_name: String,
     pub n: u32,
     pub errors: u32,
+    /// Subset of `errors` caused by rate limiting / cool-down skips.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rate_limited: Option<u32>,
     pub p50: f64,
     pub p90: f64,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -186,9 +196,13 @@ fn summarize(store: &Store, system: SystemInfo) -> PerfStats {
         ("overlay", |s| s.overlay),
         ("ocr", |s| s.ocr.filter(|_| !s.ocr_cold)),
         ("ocrCold", |s| {
-            s.ocr
-                .filter(|_| s.ocr_cold)
-                .map(|ocr| ocr + s.ocr_load.unwrap_or(0.0))
+            if !s.ocr_cold {
+                return None;
+            }
+            // Prefer the actual post-selection wall time (excludes preload hidden behind drag);
+            // fall back to `ocr + ocr_load` for older persisted samples.
+            s.ocr_wall
+                .or_else(|| s.ocr.map(|ocr| ocr + s.ocr_load.unwrap_or(0.0)))
         }),
         ("ocrLoad", |s| s.ocr_load),
         ("det", |s| s.det),
@@ -217,6 +231,7 @@ fn summarize(store: &Store, system: SystemInfo) -> PerfStats {
         elapsed: Vec<f64>,
         first: Vec<f64>,
         errors: u32,
+        rate_limited: u32,
     }
     let mut accs: Vec<Acc> = Vec::new();
     for e in store.samples.iter().flat_map(|s| &s.engines) {
@@ -234,6 +249,9 @@ fn summarize(store: &Store, system: SystemInfo) -> PerfStats {
         acc.name = e.engine_name.clone(); // latest name wins (services can be renamed)
         if e.error {
             acc.errors += 1;
+            if e.error_code.as_deref() == Some("rate_limited") {
+                acc.rate_limited += 1;
+            }
         } else if let Some(ms) = e.elapsed {
             acc.elapsed.push(ms);
         }
@@ -250,6 +268,7 @@ fn summarize(store: &Store, system: SystemInfo) -> PerfStats {
                 engine_name: a.name,
                 n: a.elapsed.len() as u32,
                 errors: a.errors,
+                rate_limited: (a.rate_limited > 0).then_some(a.rate_limited),
                 p50,
                 p90,
                 first_token_p50: percentiles(a.first).map(|(p50, _, _)| p50),
@@ -369,9 +388,13 @@ pub fn diagnostics(stats: &PerfStats) -> String {
                 .first_token_p50
                 .map(|v| format!("{v:.0}"))
                 .unwrap_or_else(|| "-".into());
+            let note = match e.rate_limited {
+                Some(rl) if rl > 0 => format!("  (限流 {rl})"),
+                _ => String::new(),
+            };
             let _ = writeln!(
                 out,
-                "{:<16}{:>6}{:>6}{:>10.0}{:>10.0}{:>10}",
+                "{:<16}{:>6}{:>6}{:>10.0}{:>10.0}{:>10}{note}",
                 e.engine_name, e.n, e.errors, e.p50, e.p90, first
             );
         }
@@ -398,6 +421,7 @@ mod tests {
             ocr: Some(100.0),
             ..Default::default()
         });
+        // Legacy sample without `ocr_wall` falls back to `ocr + ocr_load`.
         store.samples.push_back(Sample {
             ocr: Some(120.0),
             ocr_cold: true,
@@ -426,9 +450,36 @@ mod tests {
     }
 
     #[test]
+    fn ocr_cold_prefers_actual_post_selection_wall_time() {
+        let mut store = Store::default();
+        store.samples.push_back(Sample {
+            ocr: Some(120.0),
+            ocr_wall: Some(150.0), // 300 ms load mostly overlapped with user drag
+            ocr_cold: true,
+            ocr_load: Some(300.0),
+            ..Default::default()
+        });
+        let sys = SystemInfo {
+            app: "0".into(),
+            os: "x".into(),
+            cpu_threads: 1,
+            webview: "-".into(),
+            monitors: vec![],
+        };
+        let stats = summarize(&store, sys);
+        let cold = stats.metrics.iter().find(|m| m.key == "ocrCold").unwrap();
+        assert_eq!(cold.p50, 150.0);
+    }
+
+    #[test]
     fn engine_errors_do_not_count_as_latency() {
         let mut store = Store::default();
-        for (ms, error) in [(Some(200.0), false), (None, true), (Some(400.0), false)] {
+        for (ms, error, code) in [
+            (Some(200.0), false, None),
+            (None, true, Some("rate_limited")),
+            (None, true, Some("network")),
+            (Some(400.0), false, None),
+        ] {
             store.samples.push_back(Sample {
                 engines: vec![EngineSample {
                     engine_id: "g".into(),
@@ -436,6 +487,7 @@ mod tests {
                     elapsed: ms,
                     first_token: None,
                     error,
+                    error_code: code.map(str::to_string),
                 }],
                 ..Default::default()
             });
@@ -447,9 +499,14 @@ mod tests {
             webview: "-".into(),
             monitors: vec![],
         };
-        let e = &summarize(&store, sys).engines[0];
-        assert_eq!((e.n, e.errors, e.p50), (2, 1, 200.0));
+        let stats = summarize(&store, sys);
+        let e = &stats.engines[0];
+        assert_eq!(
+            (e.n, e.errors, e.rate_limited, e.p50),
+            (2, 2, Some(1), 200.0)
+        );
         assert_eq!(e.first_token_p50, None);
+        assert!(diagnostics(&stats).contains("(限流 1)"));
     }
 
     #[test]

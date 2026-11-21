@@ -21,6 +21,10 @@ use crate::{EngineConfig, Result, TranslateError};
 
 const FREE_BASE: &str = "https://translate.googleapis.com";
 const OFFICIAL_BASE: &str = "https://translation.googleapis.com";
+/// Standard browser UA for the unofficial `client=gtx` endpoint; custom app UAs are throttled
+/// much more aggressively on shared proxy IPs.
+const FREE_USER_AGENT: &str =
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
 
 pub(crate) struct Google {
     api_key: Option<String>,
@@ -55,6 +59,7 @@ impl Google {
             .http
             .post(format!("{}/translate_a/single", self.base))
             .timeout(MT_TIMEOUT)
+            .header(reqwest::header::USER_AGENT, FREE_USER_AGENT)
             .query(&[("client", "gtx"), ("sl", from), ("tl", to), ("dt", "t")])
             .form(&[("q", text)]);
         let body = send(rb, Provider::Google).await?.text().await?;

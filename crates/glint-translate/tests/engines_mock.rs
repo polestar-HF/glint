@@ -541,6 +541,11 @@ async fn google_free_endpoint_request_and_result() {
         text,
         "the text travels in the body, newlines intact"
     );
+    assert!(
+        rec.header("user-agent")
+            .is_some_and(|ua| ua.starts_with("Mozilla/5.0")),
+        "free endpoint should send a browser user-agent"
+    );
 }
 
 #[tokio::test]

@@ -104,10 +104,13 @@ pub struct Renderer {
     font_px: f32,
     format: IDWriteTextFormat,
     device: Option<Device>,
+    /// True until the current capture's frozen frame has been uploaded into `device.frozen`.
+    frame_dirty: bool,
 }
 
 /// Device-dependent resources. Dropping them releases the COM objects.
 struct Device {
+    size: (u32, u32),
     target: ID2D1HwndRenderTarget,
     frozen: ID2D1Bitmap,
     brush: ID2D1SolidColorBrush,
@@ -145,19 +148,49 @@ impl Renderer {
             font_px,
             format,
             device: None,
+            frame_dirty: true,
         })
+    }
+
+    /// Marks the frozen bitmap stale for a new capture session and applies any accent change
+    /// without tearing down the existing render target or GPU bitmap.
+    pub fn prepare_session(&mut self, accent: u32) {
+        self.style.accent = accent;
+        self.frame_dirty = true;
     }
 
     /// Draws `view` (monitor-local) over the frozen `frame` and presents it.
     pub fn draw(&mut self, gfx: &Gfx, frame: &MonitorFrame, view: &View) -> WinResult<Drawn> {
+        let (w, h) = (frame.rect.width, frame.rect.height);
+        if self.device.as_ref().is_some_and(|d| d.size != (w, h)) {
+            self.device = None;
+        }
         if self.device.is_none() {
             self.device = Some(Device::create(gfx, self.hwnd, frame)?);
+            self.frame_dirty = false;
+        } else if self.frame_dirty {
+            if let Some(dev) = self.device.as_ref() {
+                // SAFETY: `frame.bgra` was validated to hold `w * h * 4` bytes and `dev.frozen`
+                // has matching dimensions `(w, h)`.
+                let copy = unsafe {
+                    dev.frozen
+                        .CopyFromMemory(None, frame.bgra.as_ptr().cast(), w * 4)
+                };
+                match copy {
+                    Ok(()) => self.frame_dirty = false,
+                    Err(e) if e.code() == D2DERR_RECREATE_TARGET => {
+                        log::warn!("overlay bitmap lost on upload; recreating");
+                        self.device = None;
+                        return Ok(Drawn::DeviceLost);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
         }
         let Some(dev) = self.device.as_ref() else {
             return Ok(Drawn::DeviceLost);
         };
 
-        let (w, h) = (frame.rect.width, frame.rect.height);
         let sample = view
             .magnifier
             .and_then(|p| pixels::sample_rgb(&frame.bgra, w, h, p));
@@ -185,6 +218,7 @@ impl Renderer {
             Err(e) if e.code() == D2DERR_RECREATE_TARGET => {
                 log::warn!("overlay render target lost; recreating");
                 self.device = None;
+                self.frame_dirty = true;
                 Ok(Drawn::DeviceLost)
             }
             Err(e) => Err(e),
@@ -228,6 +262,7 @@ impl Device {
         // SAFETY: valid color pointer for the duration of the call.
         let brush = unsafe { target.CreateSolidColorBrush(&color_f(layout::CHIP_FG), None) }?;
         Ok(Self {
+            size: (w, h),
             target,
             frozen,
             brush,

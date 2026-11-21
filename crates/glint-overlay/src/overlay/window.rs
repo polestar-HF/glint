@@ -34,11 +34,12 @@ use windows::Win32::UI::WindowsAndMessaging::{
     GetCursorPos, GetForegroundWindow, GetMessageW, GetWindowRect, GetWindowThreadProcessId,
     IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, LoadCursorW, PostMessageW,
     PostQuitMessage, RegisterClassExW, SetCursor, SetCursorPos, SetForegroundWindow, SetWindowPos,
-    TranslateMessage, UnregisterClassW, HCURSOR, HTCLIENT, HWND_TOPMOST, IDC_CROSS, MSG,
-    SC_KEYMENU, SWP_NOACTIVATE, SWP_SHOWWINDOW, WM_CAPTURECHANGED, WM_CLOSE, WM_DISPLAYCHANGE,
-    WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NULL,
-    WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SYSCHAR, WM_SYSCOMMAND, WM_SYSKEYDOWN,
-    WNDCLASSEXW, WNDCLASS_STYLES, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+    ShowWindow, TranslateMessage, UnregisterClassW, HCURSOR, HTCLIENT, HWND_TOPMOST, IDC_CROSS,
+    MSG, SC_KEYMENU, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, WM_CAPTURECHANGED, WM_CLOSE,
+    WM_DISPLAYCHANGE, WM_DPICHANGED, WM_ERASEBKGND, WM_KEYDOWN, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_NULL, WM_PAINT, WM_RBUTTONDOWN, WM_RBUTTONUP, WM_SETCURSOR, WM_SYSCHAR,
+    WM_SYSCOMMAND, WM_SYSKEYDOWN, WNDCLASSEXW, WNDCLASS_STYLES, WS_EX_TOOLWINDOW, WS_EX_TOPMOST,
+    WS_POPUP,
 };
 
 use super::input::{self, Capture, Finish, Interaction, Response, View};
@@ -57,10 +58,83 @@ static ACTIVE: AtomicBool = AtomicBool::new(false);
 
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
+    static WARM: RefCell<Option<WarmCache>> = const { RefCell::new(None) };
+}
+
+/// Reusable per-monitor overlay windows and D2D render targets parked between captures.
+struct SurfacePool {
+    /// `(monitor_rect, scale.to_bits())` for each window; any change rebuilds the pool.
+    layout: Vec<(Rect, u32)>,
+    // Field order matters for drop order: render targets MUST drop before DestroyWindow.
+    surfaces: Vec<Surface>,
+    windows: WindowSet,
+}
+
+/// Thread-local warm resources kept on the dedicated overlay worker thread.
+struct WarmCache {
+    // Field order matters: pool (surfaces -> windows) drops before class and D2D/DWrite factories.
+    pool: Option<SurfacePool>,
+    gfx: Gfx,
+    class: WindowClass,
+}
+
+/// Drops cached hidden overlay windows and GPU render targets on the calling thread to return
+/// memory to the OS when idle. Keeps the tiny D2D/DWrite factories and window class ready.
+pub fn release_cached_resources() {
+    let _ = WARM.try_with(|slot| {
+        if let Ok(mut guard) = slot.try_borrow_mut() {
+            if let Some(warm) = guard.as_mut() {
+                if warm.pool.take().is_some() {
+                    log::info!("released idle overlay windows and GPU surfaces");
+                }
+            }
+        }
+    });
+}
+
+fn take_or_init_warm() -> Result<WarmCache> {
+    let existing = WARM
+        .try_with(|slot| slot.try_borrow_mut().ok().and_then(|mut g| g.take()))
+        .ok()
+        .flatten();
+    if let Some(warm) = existing {
+        return Ok(warm);
+    }
+    let instance = module_instance()?;
+    let class = WindowClass::register(instance)?;
+    let gfx =
+        Gfx::new().map_err(|e| OverlayError::Window(format!("Direct2D/DirectWrite init: {e}")))?;
+    Ok(WarmCache {
+        pool: None,
+        gfx,
+        class,
+    })
+}
+
+fn park_warm(warm: WarmCache) {
+    let _ = WARM.try_with(|slot| {
+        if let Ok(mut guard) = slot.try_borrow_mut() {
+            *guard = Some(warm);
+        }
+    });
 }
 
 pub fn select_region(
     frames: Vec<MonitorFrame>,
+    opts: &OverlayOptions,
+    stats: &mut OverlayStats,
+) -> Result<Outcome> {
+    let targets = if opts.snap_windows {
+        snap::snapshot()
+    } else {
+        Vec::new()
+    };
+    select_region_with_targets(frames, targets, opts, stats)
+}
+
+pub fn select_region_with_targets(
+    frames: Vec<MonitorFrame>,
+    targets: Vec<Rect>,
     opts: &OverlayOptions,
     stats: &mut OverlayStats,
 ) -> Result<Outcome> {
@@ -69,33 +143,50 @@ pub fn select_region(
     let _dpi = ThreadDpiScope::per_monitor_v2();
 
     let monitors: Vec<Rect> = frames.iter().map(|f| Rect::from_phys(f.rect)).collect();
-    // Taken before our windows exist, so they can never be snap targets.
-    let targets = if opts.snap_windows {
-        snap::snapshot()
-    } else {
-        Vec::new()
-    };
+    let layout_key: Vec<(Rect, u32)> = frames
+        .iter()
+        .map(|f| (Rect::from_phys(f.rect), f.scale.to_bits()))
+        .collect();
     // SAFETY: no preconditions.
     let previous_foreground = unsafe { GetForegroundWindow() };
 
-    let instance = module_instance()?;
-    let class = WindowClass::register(instance)?;
-    let gfx =
-        Gfx::new().map_err(|e| OverlayError::Window(format!("Direct2D/DirectWrite init: {e}")))?;
-    let windows = WindowSet::create(instance, &monitors)?;
+    let WarmCache {
+        mut pool,
+        gfx,
+        class,
+    } = take_or_init_warm()?;
 
-    let mut surfaces = Vec::with_capacity(frames.len());
-    for (&hwnd, frame) in windows.0.iter().zip(&frames) {
-        let renderer = Renderer::new(&gfx, hwnd, frame.scale, opts.accent)
-            .map_err(|e| OverlayError::Window(format!("text format: {e}")))?;
-        let origin = Point::new(frame.rect.x, frame.rect.y);
-        surfaces.push(Surface {
-            hwnd,
-            origin,
-            renderer,
-            requested: View::default(),
-        });
-    }
+    let (windows, surfaces) = if pool.as_ref().is_some_and(|p| p.layout == layout_key) {
+        let Some(SurfacePool {
+            mut surfaces,
+            windows,
+            ..
+        }) = pool.take()
+        else {
+            unreachable!()
+        };
+        for s in &mut surfaces {
+            s.renderer.prepare_session(opts.accent);
+            s.requested = View::default();
+        }
+        (windows, surfaces)
+    } else {
+        drop(pool);
+        let windows = WindowSet::create(class.instance, &monitors)?;
+        let mut surfaces = Vec::with_capacity(frames.len());
+        for (&hwnd, frame) in windows.0.iter().zip(&frames) {
+            let renderer = Renderer::new(&gfx, hwnd, frame.scale, opts.accent)
+                .map_err(|e| OverlayError::Window(format!("text format: {e}")))?;
+            let origin = Point::new(frame.rect.x, frame.rect.y);
+            surfaces.push(Surface {
+                hwnd,
+                origin,
+                renderer,
+                requested: View::default(),
+            });
+        }
+        (windows, surfaces)
+    };
 
     let mut interaction = Interaction::new(
         monitors.clone(),
@@ -125,6 +216,7 @@ pub fn select_region(
         finish: None,
         error: None,
         device_losses: 0,
+        display_changed: false,
     });
 
     windows.show_and_paint(&monitors);
@@ -143,17 +235,44 @@ pub fn select_region(
     let exit = run_message_loop();
 
     let app = slot.take();
-    // Release render targets, then destroy windows, then the class.
     let App {
         surfaces,
+        gfx,
         frames,
         finish,
         error,
+        display_changed,
         ..
     } = app.ok_or_else(|| OverlayError::Window("overlay state lost".into()))?;
-    drop(surfaces);
-    drop(windows);
-    drop(class);
+
+    let keep_pool = error.is_none() && !display_changed && matches!(exit, LoopExit::Done);
+    if keep_pool {
+        windows.hide_and_cloak();
+        park_warm(WarmCache {
+            pool: Some(SurfacePool {
+                layout: layout_key,
+                surfaces,
+                windows,
+            }),
+            gfx,
+            class,
+        });
+    } else {
+        // Release render targets before destroying windows.
+        drop(surfaces);
+        drop(windows);
+        if !matches!(exit, LoopExit::Quit(_)) {
+            park_warm(WarmCache {
+                pool: None,
+                gfx,
+                class,
+            });
+        } else {
+            drop(gfx);
+            drop(class);
+        }
+    }
+
     // When a popup follows (translate / OCR), the app gives it focus right away; handing the
     // foreground back to the previous window first would make that `SetForegroundWindow` hit
     // the foreground lock, and a popup that never had focus never hides on blur.
@@ -210,6 +329,7 @@ struct App {
     finish: Option<Finish>,
     error: Option<OverlayError>,
     device_losses: u32,
+    display_changed: bool,
 }
 
 /// Side effects to run after the state borrow is released, because they make Win32
@@ -407,8 +527,13 @@ impl App {
                     (handled, self.respond(r))
                 }
             }
-            // Alt+F4 / SC_CLOSE, and monitor layout changes (the frames are stale).
-            WM_CLOSE | WM_DISPLAYCHANGE => (handled, self.finish_with(Finish::Cancel)),
+            // Alt+F4 / SC_CLOSE.
+            WM_CLOSE => (handled, self.finish_with(Finish::Cancel)),
+            // Monitor layout changed: frames and cached window rects are stale.
+            WM_DISPLAYCHANGE => {
+                self.display_changed = true;
+                (handled, self.finish_with(Finish::Cancel))
+            }
             // Each window sits exactly on its monitor; never resize to a suggested rect.
             WM_DPICHANGED => (handled, Deferred::default()),
             _ => (None, Deferred::default()),
@@ -632,9 +757,10 @@ impl WindowSet {
             }
         }
         for &hwnd in &self.0 {
-            // SAFETY: our live window. Sends WM_PAINT synchronously; the App is
-            // installed and not borrowed here, so the first frame is drawn now.
+            // SAFETY: our live window. Invalidate first so reused (previously hidden) windows
+            // always receive WM_PAINT synchronously and upload the new frozen frame before uncloak.
             unsafe {
+                let _ = InvalidateRect(Some(hwnd), None, false);
                 let _ = UpdateWindow(hwnd);
             }
         }
@@ -643,6 +769,17 @@ impl WindowSet {
     fn uncloak(&self) {
         for &hwnd in &self.0 {
             dwm_set(hwnd, DWMWA_CLOAK, &BOOL::from(false));
+        }
+    }
+
+    /// Hides every window for parking in the warm pool (invisible to BitBlt and EnumWindows).
+    fn hide_and_cloak(&self) {
+        for &hwnd in &self.0 {
+            dwm_set(hwnd, DWMWA_CLOAK, &BOOL::from(true));
+            // SAFETY: our live window; SW_HIDE also releases capture if held.
+            unsafe {
+                let _ = ShowWindow(hwnd, SW_HIDE);
+            }
         }
     }
 }

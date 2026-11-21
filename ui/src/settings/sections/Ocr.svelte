@@ -49,7 +49,7 @@
     <Select
       labelledby="o-idle"
       width={160}
-      value={idle.some((o) => o.value === c.ocr.idleUnloadSecs) ? c.ocr.idleUnloadSecs : 300}
+      value={idle.some((o) => o.value === c.ocr.idleUnloadSecs) ? c.ocr.idleUnloadSecs : 900}
       options={idle}
       onchange={(v) => (c.ocr.idleUnloadSecs = v)}
     />

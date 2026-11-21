@@ -176,6 +176,7 @@ export interface PerfEngine {
   engineName: string;
   n: number;
   errors: number;
+  rateLimited?: number;
   p50: number;
   p90: number;
   firstTokenP50?: number | null;

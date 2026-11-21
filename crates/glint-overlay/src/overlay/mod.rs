@@ -16,7 +16,7 @@ mod render;
 mod window;
 
 #[cfg(windows)]
-pub(crate) use window::select_region;
+pub(crate) use window::{release_cached_resources, select_region, select_region_with_targets};
 
 use crate::geom::Rect;
 use crate::{pixels, Action, MonitorFrame, OverlayError, Result, Selection};

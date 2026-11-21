@@ -65,7 +65,7 @@ impl Default for Ocr {
         Self {
             engine: "paddle".into(),
             merge_lines: true,
-            idle_unload_secs: 300,
+            idle_unload_secs: 900,
         }
     }
 }

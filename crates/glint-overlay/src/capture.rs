@@ -1,9 +1,13 @@
-//! One-shot GDI capture of every monitor into BGRA frames.
+//! One-shot GDI capture of every monitor into BGRX/BGRA frames.
 //!
 //! Per monitor: `BitBlt` (`SRCCOPY | CAPTUREBLT`) from the screen DC into a top-down
-//! 32-bpp DIB section, then one vectorized copy into `MonitorFrame::bgra` with alpha
-//! forced to 255 (no zero-fill first). The screen DC uses virtual-desktop coordinates,
+//! 32-bpp DIB section, then one direct byte copy into `MonitorFrame::bgra`. Multi-monitor
+//! setups capture every monitor in parallel. The screen DC uses virtual-desktop coordinates,
 //! so monitor rects (which can be negative) are used as blit sources directly.
+//!
+//! Alpha byte note: GDI leaves the 4th byte undefined, which is fine because Direct2D uses
+//! `D2D1_ALPHA_MODE_IGNORE`, the magnifier samples only B/G/R, and `crop_bgra_to_rgba` forces
+//! alpha to 255 on the cropped selection.
 
 use std::ffi::c_void;
 use std::mem::size_of;
@@ -11,6 +15,7 @@ use std::ptr::null_mut;
 
 use windows::core::BOOL;
 use windows::Win32::Foundation::{LPARAM, RECT, TRUE};
+use windows::Win32::Graphics::Dwm::DwmFlush;
 use windows::Win32::Graphics::Gdi::{
     BitBlt, CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, EnumDisplayMonitors,
     GdiFlush, GetDC, GetMonitorInfoW, ReleaseDC, SelectObject, BITMAPINFO, BITMAPINFOHEADER,
@@ -20,12 +25,21 @@ use windows::Win32::UI::HiDpi::{GetDpiForMonitor, MDT_EFFECTIVE_DPI};
 
 use crate::geom::Rect;
 use crate::win::{last_error, ThreadDpiScope};
-use crate::{pixels, MonitorFrame, OverlayError, Result};
+use crate::{MonitorFrame, OverlayError, Result};
 
 struct MonitorDesc {
     rect: Rect,
     work: Rect,
     scale: f32,
+}
+
+/// Wait for one DWM composition frame (typically 6–16 ms) so a just-hidden window is no
+/// longer present in the screen DC before capturing.
+pub fn wait_for_dwm_frame() {
+    // SAFETY: DwmFlush has no preconditions.
+    if unsafe { DwmFlush() }.is_err() {
+        std::thread::sleep(std::time::Duration::from_millis(16));
+    }
 }
 
 pub fn capture_all() -> Result<Vec<MonitorFrame>> {
@@ -34,12 +48,34 @@ pub fn capture_all() -> Result<Vec<MonitorFrame>> {
     if monitors.is_empty() {
         return Err(OverlayError::Capture("no monitors found".into()));
     }
-    let screen = ScreenDc::get()?;
-    let mem = MemDc::compatible_with(&screen)?;
-    monitors
-        .iter()
-        .map(|m| capture_monitor(&screen, &mem, m))
-        .collect()
+    if monitors.len() == 1 {
+        let screen = ScreenDc::get()?;
+        let mem = MemDc::compatible_with(&screen)?;
+        return Ok(vec![capture_monitor(&screen, &mem, &monitors[0])?]);
+    }
+    // Multi-monitor: capture every monitor concurrently so dual-2K / 4K setups pay for one
+    // monitor's BitBlt + readback instead of the sum.
+    std::thread::scope(|s| {
+        let handles: Vec<_> = monitors
+            .iter()
+            .map(|m| {
+                s.spawn(move || {
+                    let _dpi = ThreadDpiScope::per_monitor_v2();
+                    let screen = ScreenDc::get()?;
+                    let mem = MemDc::compatible_with(&screen)?;
+                    capture_monitor(&screen, &mem, m)
+                })
+            })
+            .collect();
+        let mut out = Vec::with_capacity(handles.len());
+        for h in handles {
+            let frame = h
+                .join()
+                .map_err(|_| OverlayError::Capture("capture worker panicked".into()))??;
+            out.push(frame);
+        }
+        Ok(out)
+    })
 }
 
 fn enumerate_monitors() -> Result<Vec<MonitorDesc>> {
@@ -125,7 +161,7 @@ fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<Mo
     let dib = unsafe { CreateDIBSection(Some(screen.0), &bmi, DIB_RGB_COLORS, &mut bits, None, 0) }
         .map_err(|e| OverlayError::Capture(format!("CreateDIBSection {w}x{h}: {e}")))?;
     let dib = Bitmap(dib);
-    if bits.is_null() || !bits.cast::<u32>().is_aligned() {
+    if bits.is_null() {
         return Err(OverlayError::Capture(
             "CreateDIBSection returned unusable bits".into(),
         ));
@@ -150,12 +186,11 @@ fn capture_monitor(screen: &ScreenDc, mem: &MemDc, m: &MonitorDesc) -> Result<Mo
     // SAFETY: no preconditions. Makes sure the blit has landed before the CPU reads.
     let _ = unsafe { GdiFlush() };
 
-    let n = w as usize * h as usize;
-    // SAFETY: CreateDIBSection allocated `n` 32-bit pixels at `bits` (32-bpp rows need
-    // no padding). The memory is owned by `dib`, which outlives this borrow, and the
-    // pointer was checked above to be non-null and u32-aligned.
-    let src = unsafe { std::slice::from_raw_parts(bits.cast::<u32>(), n) };
-    let bgra = pixels::to_opaque_bgra(src);
+    let byte_len = w as usize * h as usize * 4;
+    // SAFETY: CreateDIBSection allocated `byte_len` bytes at `bits` (32-bpp rows need no
+    // padding), owned by `dib` which outlives this slice. Direct memcpy avoids touching alpha
+    // (consumers use D2D1_ALPHA_MODE_IGNORE or overwrite alpha on crop).
+    let bgra = unsafe { std::slice::from_raw_parts(bits.cast::<u8>(), byte_len) }.to_vec();
 
     Ok(MonitorFrame {
         rect: m.rect.to_phys(),

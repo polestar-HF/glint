@@ -102,17 +102,24 @@ fn infer_err<E: std::fmt::Display>(e: E) -> OcrError {
     OcrError::Inference(e.to_string())
 }
 
-/// `min(4, cores / 2)`, at least 1.
+/// `min(6, cores / 2)`, at least 1.
+/// Uses 2–4 threads on typical laptops and up to 6 on 12+ thread desktops (staying within
+/// performance cores on hybrid CPUs while speeding up multi-line recognition).
 pub(super) fn default_threads() -> usize {
-    std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 4))
+    std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).clamp(1, 6))
 }
 
-fn build_session(env: &Environment, path: &Path, threads: usize) -> Result<Session> {
+fn build_session_raw(
+    env: &Environment,
+    path: &Path,
+    threads: usize,
+    opt_level: GraphOptimizationLevel,
+    save_optimized_to: Option<&Path>,
+) -> Result<Session> {
     let what = format!("loading {}", path.display());
-    Session::builder(env)
+    let mut builder = Session::builder(env)
         .map_err(load_err(&what))?
-        // Highest level: basic + extended + layout (NCHWc) rewrites.
-        .with_optimization_level(GraphOptimizationLevel::All)
+        .with_optimization_level(opt_level)
         .map_err(load_err(&what))?
         .with_intra_threads(threads)
         .map_err(load_err(&what))?
@@ -125,9 +132,88 @@ fn build_session(env: &Environment, path: &Path, threads: usize) -> Result<Sessi
         .with_memory_pattern(false)
         .map_err(load_err(&what))?
         .with_execution_providers([ep::CPU::default().with_arena_allocator(false).build()])
-        .map_err(load_err(&what))?
-        .commit_from_file(path)
-        .map_err(load_err(&what))
+        .map_err(load_err(&what))?;
+    if let Some(out) = save_optimized_to {
+        builder = builder
+            .with_optimized_model_path(out)
+            .map_err(load_err(&what))?;
+    }
+    builder.commit_from_file(path).map_err(load_err(&what))
+}
+
+/// Deterministic cache filename keyed by model stem, source length + mtime, ORT library length
+/// and target architecture, so model or runtime upgrades invalidate the cache automatically.
+fn optimized_cache_path(
+    cache_dir: &Path,
+    model_path: &Path,
+    ort_dylib: Option<&Path>,
+) -> Option<PathBuf> {
+    let stem = model_path.file_stem()?.to_str()?;
+    let meta = std::fs::metadata(model_path).ok()?;
+    let len = meta.len();
+    let mtime = meta
+        .modified()
+        .ok()
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map_or(0, |d| d.as_secs());
+    let dylib_len = ort_dylib
+        .and_then(|p| std::fs::metadata(p).ok())
+        .map_or(0, |m| m.len());
+    let arch = std::env::consts::ARCH;
+    Some(cache_dir.join(format!(
+        "{stem}-{arch}-{len:x}-{mtime:x}-{dylib_len:x}.opt.onnx"
+    )))
+}
+
+fn build_session(
+    env: &Environment,
+    path: &Path,
+    threads: usize,
+    cache_dir: Option<&Path>,
+    ort_dylib: Option<&Path>,
+) -> Result<Session> {
+    let cached = cache_dir.and_then(|dir| optimized_cache_path(dir, path, ort_dylib));
+    if let Some(cp) = cached.as_deref().filter(|p| p.is_file()) {
+        // Already graph-optimized: load with optimization disabled to skip repacking.
+        match build_session_raw(env, cp, threads, GraphOptimizationLevel::Disable, None) {
+            Ok(session) => {
+                log::debug!("loaded cached optimized model {}", cp.display());
+                return Ok(session);
+            }
+            Err(e) => {
+                log::warn!(
+                    "cached optimized model {} failed to load ({e}); rebuilding",
+                    cp.display()
+                );
+                let _ = std::fs::remove_file(cp);
+            }
+        }
+    }
+
+    if let Some(cp) = cached.as_deref() {
+        if let Some(dir) = cp.parent() {
+            if std::fs::create_dir_all(dir).is_ok() {
+                let tmp = cp.with_extension(format!("tmp.{}.onnx", std::process::id()));
+                match build_session_raw(env, path, threads, GraphOptimizationLevel::All, Some(&tmp))
+                {
+                    Ok(session) => {
+                        if let Err(e) = std::fs::rename(&tmp, cp) {
+                            log::debug!("could not finalize model cache {}: {e}", cp.display());
+                            let _ = std::fs::remove_file(&tmp);
+                        }
+                        return Ok(session);
+                    }
+                    Err(e) => {
+                        let _ = std::fs::remove_file(&tmp);
+                        log::warn!("optimized model cache write failed ({e}); loading uncached");
+                    }
+                }
+            }
+        }
+    }
+
+    // Highest level: basic + extended + layout (NCHWc) rewrites.
+    build_session_raw(env, path, threads, GraphOptimizationLevel::All, None)
 }
 
 pub(super) struct Engine {
@@ -163,10 +249,14 @@ impl Engine {
 
         let env = environment(opts)?;
         let threads = opts.intra_threads.unwrap_or_else(default_threads).max(1);
-        let det = build_session(&env, &det_path, threads)?;
-        let rec = build_session(&env, &rec_path, threads)?;
+        let cache_dir = opts.cache_dir.as_deref();
+        let ort_dylib = opts.ort_dylib_path.as_deref();
+        let det = build_session(&env, &det_path, threads, cache_dir, ort_dylib)?;
+        let rec = build_session(&env, &rec_path, threads, cache_dir, ort_dylib)?;
         // The classifier is tiny; one thread is plenty and keeps the pools small.
-        let cls = cls_path.map(|p| build_session(&env, &p, 1)).transpose()?;
+        let cls = cls_path
+            .map(|p| build_session(&env, &p, 1, cache_dir, ort_dylib))
+            .transpose()?;
 
         let dict = load_dict(&rec, model_dir)?;
         let classes = rec

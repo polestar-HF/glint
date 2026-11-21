@@ -10,6 +10,7 @@ const ALPHA_MASK: u32 = u32::from_ne_bytes([0, 0, 0, 0xFF]);
 
 /// Converts BGRX pixels (as captured by GDI, alpha undefined) to a BGRA byte vector
 /// with alpha 255, in one pass and without zero-filling the destination first.
+#[allow(dead_code)]
 pub fn to_opaque_bgra(src: &[u32]) -> Vec<u8> {
     let len = src.len() * 4;
     let mut out = Vec::with_capacity(len);

@@ -211,7 +211,7 @@ export function defaultConfig(): Config {
   return {
     general: { uiLanguage: 'zh-CN', autostart: false },
     hotkeys: { translate: 'Alt+Q', ocr: 'Alt+W', silentOcr: 'Alt+Shift+W' },
-    ocr: { engine: 'paddle', mergeLines: true, idleUnloadSecs: 300 },
+    ocr: { engine: 'paddle', mergeLines: true, idleUnloadSecs: 900 },
     translate: {
       sourceLang: 'auto',
       targetLang: 'zh-Hans',

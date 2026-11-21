@@ -75,6 +75,40 @@ const WORD_GAP_PITCHES: f32 = 2.2;
 /// characters are at most about 48 px apart (56 px after CJK punctuation); two spaces are 64 px.
 const WORD_GAP_MIN_PX: f32 = 52.0;
 
+/// Fast argmax over a class-probability row (18,710 floats for PP-OCRv6).
+/// Processing 8-element chunks lets LLVM use SIMD max reductions without unsafe code.
+#[inline]
+fn argmax(row: &[f32]) -> (usize, f32) {
+    let mut best_i = 0usize;
+    let mut best_v = f32::MIN;
+    let (chunks, rem) = row.as_chunks::<8>();
+    let rem_start = chunks.len() * 8;
+    for (ci, chunk) in chunks.iter().enumerate() {
+        let mut cmax = chunk[0];
+        for &v in &chunk[1..] {
+            if v > cmax {
+                cmax = v;
+            }
+        }
+        if cmax > best_v {
+            let base = ci * 8;
+            for (j, &v) in chunk.iter().enumerate() {
+                if v > best_v {
+                    best_v = v;
+                    best_i = base + j;
+                }
+            }
+        }
+    }
+    for (j, &v) in rem.iter().enumerate() {
+        if v > best_v {
+            best_v = v;
+            best_i = rem_start + j;
+        }
+    }
+    (best_i, best_v)
+}
+
 /// Greedy CTC decoding of one line: argmax per step, collapse repeats, drop blanks.
 /// `probs` is `[t, c]` row-major; `step_px` is the input width covered by one time step
 /// (8 for PP-OCRv6). The recognizer often swallows runs of several spaces (table columns,
@@ -86,13 +120,7 @@ pub(crate) fn ctc_decode(probs: &[f32], t: usize, c: usize, dict: &Dict, step_px
     let mut last = 0usize;
     for step in 0..t {
         let row = &probs[step * c..(step + 1) * c];
-        let (mut best, mut best_p) = (0usize, f32::MIN);
-        for (i, &p) in row.iter().enumerate() {
-            if p > best_p {
-                best_p = p;
-                best = i;
-            }
-        }
+        let (best, best_p) = argmax(row);
         if best != 0 && best != last {
             emitted.push((step, best));
             sum += best_p;

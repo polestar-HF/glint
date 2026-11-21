@@ -134,6 +134,11 @@ pub fn run() {
             let resource_dir = app.path().resource_dir()?;
             let model_dir = resource_dir.join("models").join("v6-small");
             let ort_dylib = resource_dir.join("onnxruntime.dll");
+            let ocr_cache_dir = app
+                .path()
+                .app_cache_dir()
+                .unwrap_or_else(|_| config_dir.join("cache"))
+                .join("ort-models");
 
             let http = glint_translate::http_client();
             // The worker only touches AppState once a job arrives, i.e. after `manage` below.
@@ -142,7 +147,7 @@ pub fn run() {
             app.manage(AppState {
                 config: RwLock::new(cfg.clone()),
                 config_path,
-                ocr: Arc::new(OcrService::new(model_dir, ort_dylib)),
+                ocr: Arc::new(OcrService::new(model_dir, ort_dylib, ocr_cache_dir)),
                 http,
                 translate_cache: glint_translate::Cache::default(),
                 perf: perf::Perf::load(config_dir.join("perf.json")),

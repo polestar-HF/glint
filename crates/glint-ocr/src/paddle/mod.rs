@@ -65,6 +65,10 @@ pub struct PaddleOptions {
     /// executable's directory. Must be a real file: it never falls back to the system search path.
     /// Only the first `PaddleOcr::load` of a process initializes ONNX Runtime; later loads reuse it.
     pub ort_dylib_path: Option<PathBuf>,
+    /// Optional directory where ONNX Runtime saves graph-optimized copies of the models so
+    /// subsequent loads (after idle unload or app restart) skip graph optimization and NCHWc
+    /// weight repacking. Invalidated automatically when model files or the ORT library change.
+    pub cache_dir: Option<PathBuf>,
     /// Background padding around the crop in pixels (8 to 16 is sensible).
     pub pad: u32,
     /// Long side limit of the detector input. Larger selections are shrunk for detection only.
@@ -105,6 +109,7 @@ impl Default for PaddleOptions {
             use_angle_cls: false,
             intra_threads: None,
             ort_dylib_path: None,
+            cache_dir: None,
             pad: 12,
             det_max_side: 960,
             det_thresh: 0.3,

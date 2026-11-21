@@ -74,6 +74,13 @@ fn window_bounds(hwnd: windows::Win32::Foundation::HWND, own_pid: u32) -> Option
         if GetWindowLongW(hwnd, GWL_EXSTYLE) as u32 & WS_EX_TRANSPARENT.0 != 0 {
             return None;
         }
+        // Fast local bounds check before paying for two cross-process DWM IPC calls;
+        // many hidden/helper top-level windows have empty rects.
+        let mut r = RECT::default();
+        GetWindowRect(hwnd, &mut r).ok()?;
+        if r.right <= r.left || r.bottom <= r.top {
+            return None;
+        }
         let mut cloaked = 0u32;
         let size = std::mem::size_of::<u32>() as u32;
         if DwmGetWindowAttribute(
@@ -87,17 +94,17 @@ fn window_bounds(hwnd: windows::Win32::Foundation::HWND, own_pid: u32) -> Option
         {
             return None;
         }
-        let mut r = RECT::default();
+        let mut ext = RECT::default();
         let size = std::mem::size_of::<RECT>() as u32;
         if DwmGetWindowAttribute(
             hwnd,
             DWMWA_EXTENDED_FRAME_BOUNDS,
-            &mut r as *mut RECT as *mut c_void,
+            &mut ext as *mut RECT as *mut c_void,
             size,
         )
-        .is_err()
+        .is_ok()
         {
-            GetWindowRect(hwnd, &mut r).ok()?;
+            r = ext;
         }
         let rect = Rect::new(r.left, r.top, r.right, r.bottom);
         (!rect.is_empty()).then_some(rect)
