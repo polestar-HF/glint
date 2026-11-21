@@ -1,3 +1,7 @@
+<p>
+  <img src="design/icon.png" width="76" height="76" alt="Glint icon">
+</p>
+
 # Glint
 
 A lightweight screenshot translation tool for Windows. Press a hotkey and the screen freezes. Drag a region, or click a window, and a small popup next to it shows the recognized text and its translation.
@@ -26,7 +30,7 @@ A lightweight screenshot translation tool for Windows. Press a hotkey and the sc
 - **Low footprint**
   - About 40 MB of memory when idle.
   - The popup's webview is created on demand and destroyed after 10 idle minutes.
-  - The OCR model unloads after 5 idle minutes.
+  - The OCR model unloads after 15 idle minutes.
 
 ## Hotkeys
 
