@@ -77,3 +77,14 @@ crates/glint-translate  Translation engines, streaming, caching
 src-tauri               App shell: tray, hotkeys, config, sessions, windows
 ui                      Svelte 5 popup and settings pages
 ```
+
+## Privacy
+
+- OCR runs entirely offline on your machine; captured screenshots are kept in memory and never uploaded or written to disk.
+- Only recognized text is sent to the translation engines you enable.
+- Settings and API keys are stored locally in `%APPDATA%\Glint\config.json` (do not share this file publicly).
+
+## License
+
+Glint is licensed under the [MIT License](LICENSE). Third-party notices are included under `third_party/` and listed in Settings → About.
+

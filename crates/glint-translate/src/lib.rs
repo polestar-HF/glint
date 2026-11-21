@@ -74,7 +74,7 @@ impl Default for TranslateRequest {
 }
 
 /// Persisted per-engine settings. Stored in the app config as an array.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct EngineConfig {
     /// Unique instance id, e.g. "claude", "deepl-1".
@@ -97,6 +97,25 @@ pub struct EngineConfig {
     /// Extra instructions appended to LLM prompts.
     #[serde(default)]
     pub prompt: Option<String>,
+}
+
+impl std::fmt::Debug for EngineConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EngineConfig")
+            .field("id", &self.id)
+            .field("kind", &self.kind)
+            .field("enabled", &self.enabled)
+            .field("name", &self.name)
+            .field("api_key", &self.api_key.as_ref().map(|_| "[redacted]"))
+            .field(
+                "api_secret",
+                &self.api_secret.as_ref().map(|_| "[redacted]"),
+            )
+            .field("base_url", &self.base_url)
+            .field("model", &self.model)
+            .field("prompt", &self.prompt)
+            .finish()
+    }
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -293,5 +312,16 @@ mod tests {
         assert_eq!(cfg.api_key.as_deref(), Some("k"));
         assert_eq!(cfg.base_url.as_deref(), Some("http://x"));
         assert!(cfg.model.is_none());
+    }
+
+    #[test]
+    fn engine_config_debug_redacts_secrets() {
+        let mut cfg = default_engines().remove(0);
+        cfg.api_key = Some("super-secret-key".into());
+        cfg.api_secret = Some("super-secret-value".into());
+        let dbg = format!("{cfg:?}");
+        assert!(!dbg.contains("super-secret-key"), "{dbg}");
+        assert!(!dbg.contains("super-secret-value"), "{dbg}");
+        assert!(dbg.contains("[redacted]"), "{dbg}");
     }
 }
