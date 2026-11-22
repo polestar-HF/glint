@@ -620,11 +620,12 @@ async fn unsupported_languages_fail_before_any_request() {
 
 // ---- Bing -----------------------------------------------------------------------------------
 
-const FAKE_JWT: &str = "eyJhbGciOiJFUzI1NiIsImtpZCI6ImtleTEifQ.eyJzdWIiOiJ4In0.c2lnbmF0dXJl";
+const FAKE_BING_HTML_1: &str = r#"<html><script>_G={IG:"0123456789ABCDEF0123456789ABCDEF"};var params_AbusePreventionHelper=[1788995349630,"tok-one",3600000];</script><div data-iid="translator.5023"></div></html>"#;
+const FAKE_BING_HTML_2: &str = r#"<html><script>_G={IG:"FEDCBA9876543210FEDCBA9876543210"};var params_AbusePreventionHelper=[1788995349999,"tok-two",3600000];</script><div data-iid="translator.5024"></div></html>"#;
 
 fn bing_handler(rec: &Recorded, _i: usize) -> Reply {
-    if rec.path() == "/translate/auth" {
-        Reply::text(200, FAKE_JWT)
+    if rec.path() == "/translator" {
+        Reply::text(200, FAKE_BING_HTML_1)
     } else {
         Reply::json(
             200,
@@ -644,22 +645,28 @@ async fn bing_fetches_a_token_once_and_reuses_it() {
     }
     let reqs = mock.requests();
     assert_eq!(
-        reqs.iter()
-            .filter(|r| r.path() == "/translate/auth")
-            .count(),
+        reqs.iter().filter(|r| r.path() == "/translator").count(),
         1,
-        "token is cached"
+        "session is cached"
     );
-    let translate: Vec<_> = reqs.iter().filter(|r| r.path() == "/translate").collect();
+    let translate: Vec<_> = reqs
+        .iter()
+        .filter(|r| r.path() == "/ttranslatev3")
+        .collect();
     assert_eq!(translate.len(), 3);
     let first = translate[0];
     assert_eq!(first.method, "POST");
-    let bearer = format!("Bearer {FAKE_JWT}");
-    assert_eq!(first.header("authorization"), Some(bearer.as_str()));
-    assert_eq!(first.query_value("api-version").as_deref(), Some("3.0"));
-    assert_eq!(first.query_value("to").as_deref(), Some("zh-Hans"));
-    assert!(first.query_value("from").is_none(), "auto means no `from`");
-    assert_eq!(first.json(), serde_json::json!([{"Text": "Hello"}]));
+    assert_eq!(first.query_value("isVertical").as_deref(), Some("1"));
+    assert_eq!(
+        first.query_value("IG").as_deref(),
+        Some("0123456789ABCDEF0123456789ABCDEF")
+    );
+    assert_eq!(first.query_value("IID").as_deref(), Some("translator.5023"));
+    assert_eq!(first.form_value("fromLang"), "auto-detect");
+    assert_eq!(first.form_value("to"), "zh-Hans");
+    assert_eq!(first.form_value("text"), "Hello");
+    assert_eq!(first.form_value("token"), "tok-one");
+    assert_eq!(first.form_value("key"), "1788995349630");
 }
 
 #[tokio::test]
@@ -679,7 +686,7 @@ async fn bing_concurrent_requests_share_one_token_fetch() {
     assert_eq!(
         mock.requests()
             .iter()
-            .filter(|r| r.path() == "/translate/auth")
+            .filter(|r| r.path() == "/translator")
             .count(),
         1
     );
@@ -688,17 +695,18 @@ async fn bing_concurrent_requests_share_one_token_fetch() {
 #[tokio::test]
 async fn bing_refreshes_a_rejected_token_and_retries() {
     let mock = Mock::start(|rec, i| {
-        if rec.path() == "/translate/auth" {
+        if rec.path() == "/translator" {
             Reply::text(
                 200,
                 if i == 0 {
-                    FAKE_JWT
+                    FAKE_BING_HTML_1
                 } else {
-                    "eyJ0b2tlbi1udW1iZXItdHdvLWlzLWxvbmctZW5vdWdo.e30.c2ln"
+                    FAKE_BING_HTML_2
                 },
             )
-        } else if rec.header("authorization") == Some(&format!("Bearer {FAKE_JWT}")) {
-            Reply::json(401, r#"{"error":{"code":401000,"message":"expired"}}"#)
+        } else if rec.form_value("token") == "tok-one" {
+            // Bing returns HTTP 200 with embedded statusCode 205 when the token expires.
+            Reply::json(200, r#"{"statusCode":205}"#)
         } else {
             Reply::json(200, r#"[{"translations":[{"text":"Hola","to":"es"}]}]"#)
         }
@@ -712,17 +720,18 @@ async fn bing_refreshes_a_rejected_token_and_retries() {
     assert_eq!(res.ok().as_deref(), Some("Hola"));
     let reqs = mock.requests();
     assert_eq!(
-        reqs.iter()
-            .filter(|r| r.path() == "/translate/auth")
-            .count(),
+        reqs.iter().filter(|r| r.path() == "/translator").count(),
         2,
-        "a new token was fetched"
+        "a new session was fetched"
     );
-    assert_eq!(reqs.iter().filter(|r| r.path() == "/translate").count(), 2);
+    assert_eq!(
+        reqs.iter().filter(|r| r.path() == "/ttranslatev3").count(),
+        2
+    );
     assert_eq!(
         reqs.iter()
-            .find(|r| r.path() == "/translate")
-            .and_then(|r| r.query_value("from"))
+            .find(|r| r.path() == "/ttranslatev3")
+            .map(|r| r.form_value("fromLang"))
             .as_deref(),
         Some("en")
     );
