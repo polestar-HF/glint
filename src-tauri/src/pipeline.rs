@@ -401,7 +401,12 @@ async fn translate_with(
         None => e.enabled,
     });
     for ec in selected {
-        match glint_translate::build_cached(ec, &state.http, &state.translate_cache) {
+        let built = if only_engine.is_some() {
+            glint_translate::build_retry(ec, &state.http, &state.translate_cache)
+        } else {
+            glint_translate::build_cached(ec, &state.http, &state.translate_cache)
+        };
+        match built {
             Ok(engine) => engines.push(engine),
             Err(e) => {
                 let name = ec

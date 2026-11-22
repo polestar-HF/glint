@@ -2,7 +2,7 @@
 //!
 //! A 429 means "ask less often", so asking again on the next capture only extends the
 //! block. After a rate limit an engine is skipped until its cool-down ends: the server's
-//! `Retry-After` when it sends one, otherwise 1, 2 and then 5 minutes for consecutive
+//! `Retry-After` when it sends one, otherwise 15 s, 45 s and then 2 minutes for consecutive
 //! limits. One success resets the count.
 
 use std::collections::HashMap;
@@ -11,9 +11,9 @@ use std::time::{Duration, Instant};
 
 /// Cool-downs without a `Retry-After`, by consecutive rate limit.
 const STEPS: [Duration; 3] = [
-    Duration::from_secs(60),
+    Duration::from_secs(15),
+    Duration::from_secs(45),
     Duration::from_secs(120),
-    Duration::from_secs(300),
 ];
 /// Upper bound for a server-requested wait.
 const MAX: Duration = Duration::from_secs(15 * 60);
@@ -78,25 +78,25 @@ mod tests {
         let c = Cooldowns::default();
         let t0 = Instant::now();
         assert_eq!(c.remaining("g", t0), None);
-        assert_eq!(c.limited("g", None, t0), Duration::from_secs(60));
-        assert_eq!(c.remaining("g", t0), Some(Duration::from_secs(60)));
+        assert_eq!(c.limited("g", None, t0), Duration::from_secs(15));
+        assert_eq!(c.remaining("g", t0), Some(Duration::from_secs(15)));
         assert_eq!(
-            c.remaining("g", t0 + Duration::from_secs(61)),
+            c.remaining("g", t0 + Duration::from_secs(16)),
             None,
             "expired"
         );
+        assert_eq!(c.limited("g", None, t0), Duration::from_secs(45));
         assert_eq!(c.limited("g", None, t0), Duration::from_secs(120));
-        assert_eq!(c.limited("g", None, t0), Duration::from_secs(300));
         assert_eq!(
             c.limited("g", None, t0),
-            Duration::from_secs(300),
+            Duration::from_secs(120),
             "capped step"
         );
         c.succeeded("g");
         assert_eq!(c.remaining("g", t0), None);
         assert_eq!(
             c.limited("g", None, t0),
-            Duration::from_secs(60),
+            Duration::from_secs(15),
             "count reset"
         );
     }

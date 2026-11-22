@@ -209,6 +209,16 @@ pub fn build_cached(
     Ok(cache.wrap(build(cfg, http)?, cfg))
 }
 
+/// [`build`], wrapped for an explicit user retry: bypasses cached results and any active local
+/// rate-limit cool-down, clearing the cool-down if the retry succeeds.
+pub fn build_retry(
+    cfg: &EngineConfig,
+    http: &reqwest::Client,
+    cache: &Cache,
+) -> Result<Box<dyn Translator>> {
+    Ok(cache.wrap_retry(build(cfg, http)?, cfg))
+}
+
 /// The default engine list, in display order: Google and Bing enabled, the rest disabled
 /// until the user adds credentials.
 pub fn default_engines() -> Vec<EngineConfig> {

@@ -143,6 +143,26 @@ impl Cache {
     /// Wrap `inner` so its results go through this cache. `cfg` supplies the key parts that
     /// are fixed per engine.
     pub fn wrap(&self, inner: Box<dyn Translator>, cfg: &EngineConfig) -> Box<dyn Translator> {
+        self.wrap_inner(inner, cfg, false)
+    }
+
+    /// Wrap `inner` for an explicit user retry: bypasses cached entries and any active local
+    /// rate-limit cool-down so a real request is sent. A successful retry clears the cool-down
+    /// and refreshes the cache; a fresh 429 updates the cool-down normally.
+    pub fn wrap_retry(
+        &self,
+        inner: Box<dyn Translator>,
+        cfg: &EngineConfig,
+    ) -> Box<dyn Translator> {
+        self.wrap_inner(inner, cfg, true)
+    }
+
+    fn wrap_inner(
+        &self,
+        inner: Box<dyn Translator>,
+        cfg: &EngineConfig,
+        bypass: bool,
+    ) -> Box<dyn Translator> {
         Box::new(CachedTranslator {
             inner,
             cache: self.clone(),
@@ -154,6 +174,7 @@ impl Cache {
                 cfg.base_url.as_deref().map(str::trim).unwrap_or(""),
                 cfg.prompt.as_deref().map(str::trim).unwrap_or("")
             ),
+            bypass,
         })
     }
 }
@@ -164,6 +185,7 @@ struct CachedTranslator {
     engine_id: String,
     model: String,
     variant: String,
+    bypass: bool,
 }
 
 #[async_trait::async_trait]
@@ -178,16 +200,20 @@ impl Translator for CachedTranslator {
 
     async fn translate(&self, req: &TranslateRequest, deltas: DeltaSink) -> Result<String> {
         let key = CacheKey::new(&self.engine_id, &self.model, &self.variant, req);
-        if let Some(hit) = self.cache.get(&key) {
-            let _ = deltas.send(hit.clone());
-            return Ok(hit);
+        if !self.bypass {
+            if let Some(hit) = self.cache.get(&key) {
+                let _ = deltas.send(hit.clone());
+                return Ok(hit);
+            }
         }
         let cooldowns = &self.cache.cooldowns;
-        if let Some(left) = cooldowns.remaining(&self.engine_id, Instant::now()) {
-            return Err(TranslateError::RateLimited {
-                message: "Paused after rate limiting".into(),
-                retry_after: Some(left),
-            });
+        if !self.bypass {
+            if let Some(left) = cooldowns.remaining(&self.engine_id, Instant::now()) {
+                return Err(TranslateError::RateLimited {
+                    message: "Paused after rate limiting".into(),
+                    retry_after: Some(left),
+                });
+            }
         }
         match self.inner.translate(req, deltas).await {
             Ok(text) => {
@@ -405,5 +431,87 @@ mod tests {
         let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         assert!(ok.translate(&req("hi"), tx).await.is_ok());
         assert_eq!(cache.len(), 1);
+    }
+
+    struct RateLimiting {
+        calls: Arc<AtomicUsize>,
+        limit: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl Translator for RateLimiting {
+        fn id(&self) -> &str {
+            "counting"
+        }
+        fn name(&self) -> &str {
+            "Counting"
+        }
+        async fn translate(&self, req: &TranslateRequest, deltas: DeltaSink) -> Result<String> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            if self.limit {
+                return Err(TranslateError::RateLimited {
+                    message: "Rate limited".into(),
+                    retry_after: None,
+                });
+            }
+            let out = format!("OK:{}", req.text);
+            let _ = deltas.send(out.clone());
+            Ok(out)
+        }
+    }
+
+    #[tokio::test]
+    async fn wrap_retry_bypasses_cooldown_and_recovers_on_success() {
+        let calls = Arc::new(AtomicUsize::new(0));
+        let cache = Cache::default();
+
+        // Trigger cooldown via normal wrapped call.
+        let limited = cache.wrap(
+            Box::new(RateLimiting {
+                calls: calls.clone(),
+                limit: true,
+            }),
+            &cfg(),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let err = limited.translate(&req("hi"), tx).await.unwrap_err();
+        assert_eq!(err.code(), "rate_limited");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Another normal call during cooldown is blocked locally without hitting inner.
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let err = limited.translate(&req("other"), tx).await.unwrap_err();
+        assert_eq!(err.code(), "rate_limited");
+        assert_eq!(calls.load(Ordering::SeqCst), 1);
+
+        // Explicit retry bypasses cooldown, succeeds, and clears cooldown.
+        let retry_ok = cache.wrap_retry(
+            Box::new(RateLimiting {
+                calls: calls.clone(),
+                limit: false,
+            }),
+            &cfg(),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert_eq!(
+            retry_ok.translate(&req("hi"), tx).await.ok().as_deref(),
+            Some("OK:hi")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2);
+
+        // Subsequent normal call on a new text is no longer paused.
+        let normal_ok = cache.wrap(
+            Box::new(RateLimiting {
+                calls: calls.clone(),
+                limit: false,
+            }),
+            &cfg(),
+        );
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
+        assert_eq!(
+            normal_ok.translate(&req("next"), tx).await.ok().as_deref(),
+            Some("OK:next")
+        );
+        assert_eq!(calls.load(Ordering::SeqCst), 3);
     }
 }
