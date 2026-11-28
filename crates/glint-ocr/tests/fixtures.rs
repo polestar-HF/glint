@@ -183,7 +183,7 @@ fn fixtures_accuracy_and_latency() {
         }
         // Layout expectations per fixture.
         let paragraphs = paragraph_count(&res);
-        let want = case.expected.split('\n').count();
+        let want = case.expected.split('\n').filter(|l| !l.is_empty()).count();
         if paragraphs != want {
             failures.push(format!(
                 "{name}: {paragraphs} paragraphs, expected {want}: {:?}",
@@ -212,7 +212,7 @@ fn exact_text_on_clean_fixtures() {
         ("dark_ui", "General\nAppearance\nKeyboard Shortcuts\nTranslation Engines\nAbout Glint"),
         (
             "two_column",
-            "Fast offline recognition keeps every screenshot on your own computer, with no upload and no account.\nTranslate with the engine you trust: a free web service, your own API key, or a local model running on this PC.",
+            "Fast offline recognition keeps every screenshot on your own computer, with no upload and no account.\n\nTranslate with the engine you trust: a free web service, your own API key, or a local model running on this PC.",
         ),
     ] {
         let got = ocr.recognize(&image(name), &opts).expect("recognize").text;

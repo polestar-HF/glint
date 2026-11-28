@@ -63,10 +63,16 @@ impl Backend for Baidu {
     }
 
     async fn call(&self, text: &str, from: &str, to: &str) -> std::result::Result<MtOut, Failure> {
+        let layout = crate::layout::Layout::parse(text);
+        let q = if layout.is_multiline() {
+            layout.compact_lines()
+        } else {
+            text.to_string()
+        };
         let salt = unique_salt();
-        let sign = sign(&self.app_id, text, &salt, &self.secret);
+        let sign = sign(&self.app_id, &q, &salt, &self.secret);
         let rb = self.http.post(&self.url).timeout(MT_TIMEOUT).form(&[
-            ("q", text),
+            ("q", q.as_str()),
             ("from", from),
             ("to", to),
             ("appid", self.app_id.as_str()),
@@ -74,7 +80,12 @@ impl Backend for Baidu {
             ("sign", sign.as_str()),
         ]);
         let resp = send(rb, Provider::Generic).await?;
-        Ok(parse_response(&resp.text().await?)?)
+        let raw = resp.text().await?;
+        if layout.is_multiline() {
+            Ok(parse_response_with_layout(&raw, Some(&layout))?)
+        } else {
+            Ok(parse_response(&raw)?)
+        }
     }
 }
 
@@ -90,6 +101,13 @@ pub(crate) fn sign(app_id: &str, q: &str, salt: &str, secret: &str) -> String {
 /// Parse `{"from":"en","to":"zh","trans_result":[{"src":"..","dst":".."}]}` or
 /// `{"error_code":"54001","error_msg":"Invalid Sign"}`.
 pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, TranslateError> {
+    parse_response_with_layout(body, None)
+}
+
+fn parse_response_with_layout(
+    body: &str,
+    layout: Option<&crate::layout::Layout>,
+) -> std::result::Result<MtOut, TranslateError> {
     let v: Value = serde_json::from_str(body).map_err(|_| parse_err("the response is not JSON"))?;
     if let Some(code) = v.get("error_code") {
         let code = match code {
@@ -110,7 +128,9 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
         .iter()
         .filter_map(|l| l.get("dst").and_then(Value::as_str))
         .collect();
-    let text = dst.join("\n");
+    let text = layout
+        .and_then(|l| l.reassemble(&dst))
+        .unwrap_or_else(|| dst.join("\n"));
     if text.trim().is_empty() {
         return Err(parse_err("the translation is empty"));
     }

@@ -118,13 +118,15 @@ impl Translator for OpenAi {
     }
 
     async fn translate(&self, req: &TranslateRequest, deltas: DeltaSink) -> Result<String> {
-        if req.text.trim().is_empty() {
+        let layout = crate::layout::Layout::parse(&req.text);
+        if layout.is_empty() {
             return Ok(String::new());
         }
         let system = prompt::system_prompt(req, self.extra_prompt.as_deref());
         let user = prompt::user_message(&req.text);
         let body = request_body(&self.model, &system, &user, &req.text, self.official);
-        within(LLM_TIMEOUT, retrying(|| self.attempt(&body, &deltas))).await
+        let out = within(LLM_TIMEOUT, retrying(|| self.attempt(&body, &deltas))).await?;
+        Ok(layout.reconcile(&out))
     }
 }
 

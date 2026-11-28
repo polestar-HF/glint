@@ -25,6 +25,7 @@ mod cooldown;
 mod engines;
 mod http;
 pub mod langs;
+mod layout;
 mod prompt;
 mod run;
 mod sse;

@@ -7,11 +7,12 @@
 //! 2. [`reading_order`]: recursive XY-cut. Columns are separated first (left to right), then
 //!    rows (top to bottom), so a two-column page reads column by column instead of
 //!    interleaving the columns line by line.
-//! 3. [`paragraphs`]: lines that sit in the same column are clustered into paragraphs by
-//!    vertical gap, left alignment, line height, a short last line and terminal
-//!    punctuation. CJK lines are joined without a space, Latin lines with one, and
-//!    end-of-line hyphenation is undone. Blocks that look like lists or UI labels (many short,
-//!    ragged lines) keep their line breaks.
+//! 3. [`paragraphs`] / [`format_paragraphs`]: lines that sit in the same column are clustered
+//!    into paragraphs by vertical gap, left alignment, line height, a short last line and
+//!    terminal punctuation. CJK lines are joined without a space, Latin lines with one, and
+//!    end-of-line hyphenation is undone. Blocks that look like lists or UI labels (ragged short
+//!    lines, short unpunctuated labels, or wide uniform spacing) keep single `\n` line breaks,
+//!    while distinct prose paragraphs and sections are separated with `\n\n`.
 //! 4. [`detect_lang`]: script counting, then `whatlang` restricted to a handful of Latin-script
 //!    languages.
 //!
@@ -24,7 +25,8 @@ use crate::OcrLine;
 pub struct Processed {
     /// Lines in reading order with normalized text. Empty lines are dropped.
     pub lines: Vec<OcrLine>,
-    /// Paragraphs (or, with `merge_lines == false`, lines) joined with `\n`.
+    /// Paragraphs/items formatted with `\n` (within lists / `merge_lines == false`) and `\n\n`
+    /// (between distinct paragraphs and sections).
     pub text: String,
     pub detected_lang: Option<String>,
 }
@@ -44,7 +46,7 @@ pub fn process(lines: Vec<OcrLine>, merge_lines: bool) -> Processed {
     let lines: Vec<OcrLine> = order.into_iter().filter_map(|i| slots[i].take()).collect();
 
     let text = if merge_lines {
-        paragraphs(&lines).join("\n")
+        format_paragraphs(&lines)
     } else {
         lines
             .iter()
@@ -430,6 +432,10 @@ fn overlap_vertically(rects: &[Rc], a: &[usize], b: &[usize]) -> bool {
 /// Vertical gap above which two lines start different paragraphs, in line heights, when there
 /// are too few gaps in the block to learn the normal line spacing from.
 const PARA_GAP_FALLBACK: f32 = 0.8;
+/// Hard upper bound on intra-paragraph line spacing (in median line heights): even when every
+/// gap in a block is uniformly wide (e.g. a spacious UI list), lines farther apart than this
+/// never merge into one paragraph.
+const MAX_INTRA_PARA_GAP: f32 = 1.15;
 /// Lines whose height differs by more than this ratio are different kinds of text.
 const MIN_HEIGHT_RATIO: f32 = 0.65;
 /// A line that stops this far (fraction of block width) before the block's right edge ends a paragraph.
@@ -455,8 +461,54 @@ impl Ln<'_> {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum BlockBreak {
+    /// First block in the document.
+    Start,
+    /// Side-by-side items on the same visual row (e.g. `OK` and `Cancel`).
+    SameRow,
+    /// Column jump (cursor moved back up to the top of the next column).
+    ColumnJump,
+    /// Horizontal discontinuity moving downwards (`x_overlap <= 0`) with its vertical gap ratio.
+    Disjoint { wide_gap: bool },
+    /// Large vertical separation (> 2.5 line heights).
+    FarGap,
+}
+
+#[derive(Debug, Clone)]
+struct Paragraph {
+    text: String,
+    /// Emit a blank line (`\n\n`) before this paragraph instead of a single `\n`.
+    blank_before: bool,
+    /// Number of OCR lines merged into this paragraph.
+    line_count: usize,
+    /// True if this item came from a list/menu block or starts with a list marker.
+    is_list_item: bool,
+}
+
 /// Merges lines (already in reading order and normalized) into paragraphs.
 pub fn paragraphs(lines: &[OcrLine]) -> Vec<String> {
+    collect_paragraphs(lines)
+        .into_iter()
+        .map(|p| p.text)
+        .collect()
+}
+
+/// Merges lines (already in reading order and normalized) and formats them with `\n` between
+/// list items / compact lines and `\n\n` between distinct prose paragraphs or sections.
+pub fn format_paragraphs(lines: &[OcrLine]) -> String {
+    let items = collect_paragraphs(lines);
+    let mut out = String::new();
+    for (i, p) in items.iter().enumerate() {
+        if i > 0 {
+            out.push_str(if p.blank_before { "\n\n" } else { "\n" });
+        }
+        out.push_str(&p.text);
+    }
+    out
+}
+
+fn collect_paragraphs(lines: &[OcrLine]) -> Vec<Paragraph> {
     let lns: Vec<Ln> = lines
         .iter()
         .map(|l| Ln {
@@ -468,56 +520,149 @@ pub fn paragraphs(lines: &[OcrLine]) -> Vec<String> {
         })
         .collect();
     let mut out = Vec::new();
-    for block in split_blocks(&lns) {
-        merge_block(&lns[block.0..block.1], &mut out);
+    for (start, end, brk) in split_blocks(&lns) {
+        let first_blank = match brk {
+            BlockBreak::Start | BlockBreak::SameRow => false,
+            BlockBreak::ColumnJump | BlockBreak::FarGap => !out.is_empty(),
+            BlockBreak::Disjoint { wide_gap } => {
+                !out.is_empty()
+                    && (wide_gap
+                        || out
+                            .last()
+                            .is_some_and(|p: &Paragraph| p.line_count >= 2 && !p.is_list_item))
+            }
+        };
+        merge_block(&lns[start..end], first_blank, &mut out);
     }
     out
 }
 
 /// Splits the ordered lines into blocks, i.e. runs that continue downwards in the same column.
-/// Returns half-open index ranges.
-fn split_blocks(l: &[Ln]) -> Vec<(usize, usize)> {
+/// Returns half-open index ranges paired with the break that preceded each block.
+fn split_blocks(l: &[Ln]) -> Vec<(usize, usize, BlockBreak)> {
     let mut blocks = Vec::new();
     let mut start = 0;
+    let mut kind = BlockBreak::Start;
     for i in 1..l.len() {
         let (a, b) = (&l[i - 1], &l[i]);
         let h = a.h().min(b.h());
+        let max_h = a.h().max(b.h());
         let jumps_up = b.cy() < a.cy() - 0.5 * h;
         let side_by_side = (b.cy() - a.cy()).abs() < 0.5 * h;
         let x_overlap = a.r.min(b.r) - a.l.max(b.l);
-        let far = b.t - a.b > 2.5 * a.h().max(b.h());
-        if jumps_up || side_by_side || x_overlap <= 0.0 || far {
-            blocks.push((start, i));
+        let gap = b.t - a.b;
+        let far = gap > 2.5 * max_h;
+        let next_kind = if side_by_side {
+            Some(BlockBreak::SameRow)
+        } else if jumps_up {
+            Some(BlockBreak::ColumnJump)
+        } else if far {
+            Some(BlockBreak::FarGap)
+        } else if x_overlap <= 0.0 {
+            Some(BlockBreak::Disjoint {
+                wide_gap: gap > PARA_GAP_FALLBACK * max_h,
+            })
+        } else {
+            None
+        };
+        if let Some(nk) = next_kind {
+            blocks.push((start, i, kind));
             start = i;
+            kind = nk;
         }
     }
     if start < l.len() {
-        blocks.push((start, l.len()));
+        blocks.push((start, l.len(), kind));
     }
     blocks
 }
 
-fn merge_block(b: &[Ln], out: &mut Vec<String>) {
+fn merge_block(b: &[Ln], first_blank: bool, out: &mut Vec<Paragraph>) {
     if b.is_empty() {
         return;
     }
-    if b.len() == 1 || is_list_like(b) {
-        out.extend(b.iter().map(|l| l.text.to_string()));
+    if b.len() == 1 {
+        out.push(Paragraph {
+            text: b[0].text.to_string(),
+            blank_before: first_blank,
+            line_count: 1,
+            is_list_item: starts_with_marker(b[0].text),
+        });
         return;
     }
+
+    // First split at clear visual section boundaries within the block:
+    // - font height transitions (e.g. a heading above a body paragraph or list),
+    // - blank-line gaps noticeably wider than the block's learned line spacing.
     let mut hs: Vec<f32> = b.iter().map(Ln::h).collect();
     let bh = median(&mut hs);
-    let left = b.iter().map(|l| l.l).fold(f32::MAX, f32::min);
-    let right = b.iter().map(|l| l.r).fold(f32::MIN, f32::max);
-    let width = (right - left).max(1.0);
-    let tol = 0.9 * bh;
-
-    // Normal line spacing, learned from the block itself.
-    let mut gaps: Vec<f32> = b.windows(2).map(|w| (w[1].t - w[0].b).max(0.0)).collect();
-    let para_gap = if gaps.len() >= 2 {
-        (0.55 * bh).max(1.8 * median(&mut gaps))
+    let gaps: Vec<f32> = b.windows(2).map(|w| (w[1].t - w[0].b).max(0.0)).collect();
+    let extra_gap = if gaps.len() >= 2 {
+        let mut sorted = gaps.clone();
+        (0.55 * bh).max(1.8 * median(&mut sorted))
     } else {
-        PARA_GAP_FALLBACK * bh
+        f32::INFINITY
+    };
+
+    let mut sub_start = 0;
+    let mut sub_blank = first_blank;
+    for i in 1..b.len() {
+        let (a, n) = (&b[i - 1], &b[i]);
+        let ratio = a.h().min(n.h()) / a.h().max(n.h());
+        let gap = (n.t - a.b).max(0.0);
+        if ratio < MIN_HEIGHT_RATIO || gap > extra_gap {
+            merge_subblock(&b[sub_start..i], sub_blank, out);
+            sub_start = i;
+            sub_blank = true;
+        }
+    }
+    merge_subblock(&b[sub_start..], sub_blank, out);
+}
+
+fn merge_subblock(b: &[Ln], first_blank: bool, out: &mut Vec<Paragraph>) {
+    if b.is_empty() {
+        return;
+    }
+    if b.len() == 1 {
+        out.push(Paragraph {
+            text: b[0].text.to_string(),
+            blank_before: first_blank,
+            line_count: 1,
+            is_list_item: starts_with_marker(b[0].text),
+        });
+        return;
+    }
+    if is_list_like(b) {
+        for (i, l) in b.iter().enumerate() {
+            out.push(Paragraph {
+                text: l.text.to_string(),
+                blank_before: i == 0 && first_blank,
+                line_count: 1,
+                is_list_item: true,
+            });
+        }
+        return;
+    }
+
+    let mut hs: Vec<f32> = b.iter().map(Ln::h).collect();
+    let bh = median(&mut hs);
+    let mut ls: Vec<f32> = b.iter().map(|l| l.l).collect();
+    let med_left = median(&mut ls);
+    let right = b.iter().map(|l| l.r).fold(f32::MIN, f32::max);
+    let width = (right - med_left).max(1.0);
+    let tol = 0.75 * bh;
+    let center_tol = 0.9 * bh;
+
+    // Normal line spacing, learned from the sub-block itself, with an upper cap so a uniformly
+    // wide-spaced list never merges into one line.
+    let gaps: Vec<f32> = b.windows(2).map(|w| (w[1].t - w[0].b).max(0.0)).collect();
+    let (merge_gap, extra_gap) = if gaps.len() >= 2 {
+        let mut sorted = gaps.clone();
+        let extra = (0.55 * bh).max(1.8 * median(&mut sorted));
+        (extra.min(MAX_INTRA_PARA_GAP * bh), extra)
+    } else {
+        let g = PARA_GAP_FALLBACK * bh;
+        (g, g)
     };
 
     #[derive(PartialEq, Clone, Copy)]
@@ -525,11 +670,16 @@ fn merge_block(b: &[Ln], out: &mut Vec<String>) {
         Left,
         Center,
     }
+    let start_idx = out.len();
     let mut cur = b[0].text.to_string();
-    let mut n_in_para = 1;
+    let mut cur_blank = first_blank;
+    let mut n_in_para = 1usize;
     let mut body_left = b[0].l;
     let mut align = Align::Left;
     let mut para_marker = starts_with_marker(b[0].text);
+    // Track whether the break before the current paragraph was a compact same-grid break that
+    // should upgrade to a blank line if the current paragraph turns out to be multi-line prose.
+    let mut promote_blank_if_prose = false;
 
     for w in b.windows(2) {
         let (a, n) = (&w[0], &w[1]);
@@ -548,7 +698,7 @@ fn merge_block(b: &[Ln], out: &mut Vec<String>) {
                 new_align = Align::Left;
                 new_body_left = n.l;
                 true
-            } else if (n.cx() - a.cx()).abs() <= tol {
+            } else if (n.cx() - a.cx()).abs() <= center_tol {
                 new_align = Align::Center;
                 true
             } else {
@@ -557,14 +707,17 @@ fn merge_block(b: &[Ln], out: &mut Vec<String>) {
         } else if align == Align::Left {
             (n.l - body_left).abs() <= tol
         } else {
-            (n.cx() - a.cx()).abs() <= tol
+            (n.cx() - a.cx()).abs() <= center_tol
         };
 
         let centered = new_align == Align::Center || align == Align::Center;
+        let short_labels = are_separate_short_labels(a, n);
+        let next_marker = starts_with_marker(n.text);
         let ends = !aligned
-            || starts_with_marker(n.text)
+            || next_marker
+            || short_labels
             || ratio < MIN_HEIGHT_RATIO
-            || gap > para_gap
+            || gap > merge_gap
             || if centered {
                 ends_with_terminal(a.text)
             } else {
@@ -573,35 +726,166 @@ fn merge_block(b: &[Ln], out: &mut Vec<String>) {
             };
 
         if ends {
-            out.push(std::mem::take(&mut cur));
+            let prev_was_prose = n_in_para >= 2 && !para_marker;
+            let prev_ended_sentence = ends_with_sentence_end(&cur);
+            let prev_is_list = para_marker || short_labels;
+            out.push(Paragraph {
+                text: std::mem::take(&mut cur),
+                blank_before: cur_blank,
+                line_count: n_in_para,
+                is_list_item: prev_is_list,
+            });
+            let big_gap = if gaps.len() >= 2 {
+                gap > extra_gap
+            } else {
+                gap > 2.0 * bh || (gap > extra_gap && !short_labels)
+            };
+            cur_blank = ratio < MIN_HEIGHT_RATIO
+                || big_gap
+                || (prev_was_prose && (!next_marker || gap > merge_gap));
+            promote_blank_if_prose =
+                !cur_blank && !prev_is_list && !next_marker && !short_labels && prev_ended_sentence;
             cur.push_str(n.text);
             n_in_para = 1;
             body_left = n.l;
             align = Align::Left;
-            para_marker = starts_with_marker(n.text);
+            para_marker = next_marker;
         } else {
             join_lines(&mut cur, n.text);
             n_in_para += 1;
+            if promote_blank_if_prose && n_in_para == 2 && !para_marker {
+                cur_blank = true;
+            }
             align = new_align;
             body_left = new_body_left;
         }
     }
-    out.push(cur);
+    out.push(Paragraph {
+        text: cur,
+        blank_before: cur_blank,
+        line_count: n_in_para,
+        is_list_item: para_marker,
+    });
+    // Ensure the very first emitted paragraph of this sub-block always keeps `first_blank`.
+    if let Some(first) = out.get_mut(start_idx) {
+        first.blank_before = first_blank;
+    }
 }
 
-/// "Many short, uniform lines": a menu, a settings list, song lyrics, a chat log. Real paragraphs
-/// have lines that (all but the last) reach close to the block's right edge.
+/// Visual width proxy: CJK characters count as 2 units, ASCII/other characters as 1.
+fn visual_len(s: &str) -> usize {
+    s.chars()
+        .map(|c| {
+            if is_han(c) || is_kana(c) || is_hangul(c) {
+                2
+            } else {
+                1
+            }
+        })
+        .sum()
+}
+
+fn has_cjk_letter(s: &str) -> bool {
+    s.chars().any(|c| is_han(c) || is_kana(c) || is_hangul(c))
+}
+
+/// True when `s` contains sentence or clause punctuation (ignoring `.` / `:` inside versions,
+/// domains, filenames or times like `0.2.6`, `README.md`, `12:30`).
+fn has_sentence_punct(s: &str) -> bool {
+    let chars: Vec<char> = s.chars().collect();
+    for (i, &c) in chars.iter().enumerate() {
+        match c {
+            ',' | '!' | '?' | ';' | '，' | '。' | '！' | '？' | '；' | '：' | '、' | '…' =>
+            {
+                return true;
+            }
+            '.' | ':' => {
+                let prev_alnum = i > 0 && chars[i - 1].is_ascii_alphanumeric();
+                let next_alnum = chars.get(i + 1).is_some_and(|n| n.is_ascii_alphanumeric());
+                if !(prev_alnum && next_alnum) {
+                    return true;
+                }
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// True when `s` begins with a lowercase Latin letter — a strong signal that it continues a
+/// wrapped English/Latin sentence from the previous line.
+fn starts_with_lowercase_latin(s: &str) -> bool {
+    s.chars()
+        .next()
+        .is_some_and(|c| is_latin_letter(c) && c.is_lowercase())
+}
+
+/// True when `s` looks like a standalone short UI label, menu item or sidebar entry rather than
+/// a wrapped line of prose.
+fn is_short_label(s: &str, max_latin_len: usize, max_cjk_len: usize) -> bool {
+    if s.is_empty()
+        || has_sentence_punct(s)
+        || s.ends_with(['-', '\u{2010}', '\u{2011}', '\u{00AD}'])
+    {
+        return false;
+    }
+    let vlen = visual_len(s);
+    if has_cjk_letter(s) {
+        vlen <= max_cjk_len
+    } else {
+        vlen <= max_latin_len && s.split_whitespace().count() <= 3
+    }
+}
+
+/// True for a pair of adjacent short standalone UI labels (e.g. `Readme` / `MIT license` or
+/// `0 watching` / `0 forks`) that should stay on separate lines even in a 2-line capture.
+fn are_separate_short_labels(a: &Ln, n: &Ln) -> bool {
+    if starts_with_lowercase_latin(n.text) {
+        return false;
+    }
+    is_short_label(a.text, 14, 10) && is_short_label(n.text, 14, 10)
+}
+
+/// True when the block clearly contains at least one pair of wrapped prose lines, preventing
+/// `is_list_like` from breaking a real prose paragraph inside a mixed prose+list block.
+fn has_prose_run(b: &[Ln], right: f32, width: f32) -> bool {
+    b.windows(2).any(|w| {
+        let (a, n) = (&w[0], &w[1]);
+        if right - a.r > 0.25 * width || visual_len(a.text) < 22 || starts_with_marker(n.text) {
+            return false;
+        }
+        starts_with_lowercase_latin(n.text)
+            || a.text.ends_with(['-', '\u{2010}', '\u{2011}', '\u{00AD}'])
+            || ((has_sentence_punct(a.text) || has_sentence_punct(n.text))
+                && visual_len(n.text) >= 16)
+    })
+}
+
+/// "Many short, uniform lines": a menu, a settings list, a sidebar, song lyrics, a chat log.
+/// Real paragraphs have lines that (all but the last) reach close to the block's right edge,
+/// and never consist exclusively of tiny unpunctuated 1–3 word labels.
 fn is_list_like(b: &[Ln]) -> bool {
     if b.len() < 3 {
         return false;
     }
-    let left = b.iter().map(|l| l.l).fold(f32::MAX, f32::min);
+    let mut ls: Vec<f32> = b.iter().map(|l| l.l).collect();
+    let med_left = median(&mut ls);
     let right = b.iter().map(|l| l.r).fold(f32::MIN, f32::max);
-    let width = (right - left).max(1.0);
+    let width = (right - med_left).max(1.0);
+    if has_prose_run(b, right, width) {
+        return false;
+    }
     let body = &b[..b.len() - 1];
     let short = body.iter().filter(|l| right - l.r > 0.25 * width).count();
     // One short line is just the end of a paragraph; several are a list.
-    short >= 2 && short * 5 >= body.len() * 2
+    if short >= 2 && short * 5 >= body.len() * 2 {
+        return true;
+    }
+    // Uniform-width short label menus (e.g. 4-char CJK sidebar items or 1-2 word English items
+    // like GitHub's `Readme / MIT license / Activity / 0 stars / 0 watching / 0 forks`).
+    let all_short_labels = b.iter().all(|l| is_short_label(l.text, 22, 14));
+    let no_lowercase_wrap = !b[1..].iter().any(|l| starts_with_lowercase_latin(l.text));
+    all_short_labels && no_lowercase_wrap
 }
 
 /// Terminal punctuation: `。！？.!?:：` (and `…`, `;`-like marks), ignoring closing quotes/brackets.
@@ -621,7 +905,21 @@ fn ends_with_terminal(s: &str) -> bool {
     })
 }
 
-/// Bullets and numbering that start a new item.
+/// Sentence-ending punctuation (excluding lead-in colons `:`, `：`).
+fn ends_with_sentence_end(s: &str) -> bool {
+    let t = s.trim_end_matches(|c: char| {
+        c.is_whitespace()
+            || matches!(
+                c,
+                '"' | '\'' | '”' | '’' | '」' | '』' | '）' | ')' | ']' | '】' | '》' | '*'
+            )
+    });
+    t.chars()
+        .next_back()
+        .is_some_and(|c| matches!(c, '。' | '！' | '？' | '.' | '!' | '?' | '…'))
+}
+
+/// Bullets, numbering and common UI icon glyphs that start a new item.
 fn starts_with_marker(s: &str) -> bool {
     let mut it = s.chars();
     let Some(c0) = it.next() else { return false };
@@ -642,6 +940,19 @@ fn starts_with_marker(s: &str) -> bool {
             | '►'
             | '‣'
             | '⁃'
+            | '☆'
+            | '★'
+            | '✓'
+            | '✔'
+            | '✗'
+            | '✘'
+            | '☐'
+            | '☑'
+            | '☒'
+            | '→'
+            | '⇒'
+            | '➜'
+            | '➤'
     ) {
         return true;
     }
@@ -1039,7 +1350,15 @@ mod tests {
 
     fn merged(lines: Vec<OcrLine>) -> Vec<String> {
         let p = process(lines, true);
-        p.text.split('\n').map(str::to_string).collect()
+        p.text
+            .split('\n')
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect()
+    }
+
+    fn formatted(lines: Vec<OcrLine>) -> String {
+        process(lines, true).text
     }
 
     #[test]
@@ -1437,6 +1756,249 @@ mod tests {
             merged(v),
             ["He was a famous king of the Anglo-Saxon people who ruled for many years and then he died."]
         );
+    }
+
+    #[test]
+    fn github_sidebar_with_icon_and_db_boxes_keeps_each_item_on_its_own_line() {
+        // Real PaddleOCR-style inflated boxes from a GitHub repo sidebar where `☆ 0 stars`
+        // extends further left than the rest of the column and line widths are narrow.
+        let v = vec![
+            ln("Readme", 44.0, 18.0, 73.0, 26.0),
+            ln("MIT license", 44.0, 54.0, 98.0, 26.0),
+            ln("Activity", 44.0, 92.0, 67.0, 27.0),
+            ln("☆ 0 stars", 20.0, 128.0, 84.0, 26.0),
+            ln("0 watching", 44.0, 164.0, 95.0, 27.0),
+            ln("0 forks", 44.0, 200.0, 63.0, 26.0),
+        ];
+        assert_eq!(
+            formatted(v),
+            "Readme\nMIT license\nActivity\n☆ 0 stars\n0 watching\n0 forks"
+        );
+    }
+
+    #[test]
+    fn wide_spaced_uniform_ui_list_never_merges_and_stays_compact() {
+        // Tight glyph boxes (Windows OCR style) with generous uniform vertical spacing (> 1.15h).
+        let v = vec![
+            ln("Readme", 51.0, 25.0, 59.0, 13.0),
+            ln("MIT license", 51.0, 61.0, 83.0, 13.0),
+            ln("Activity", 51.0, 99.0, 53.0, 14.0),
+            ln("0 stars", 51.0, 135.0, 46.0, 13.0),
+            ln("0 watching", 51.0, 170.0, 80.0, 14.0),
+            ln("0 forks", 51.0, 206.0, 49.0, 13.0),
+        ];
+        assert_eq!(
+            formatted(v),
+            "Readme\nMIT license\nActivity\n0 stars\n0 watching\n0 forks"
+        );
+    }
+
+    #[test]
+    fn uniform_width_short_menus_keep_line_breaks() {
+        // Equal-width CJK menu items (zero right-edge raggedness).
+        let zh_menu = vec![
+            ln("常规设置", 16.0, 10.0, 80.0, 20.0),
+            ln("外观主题", 16.0, 36.0, 80.0, 20.0),
+            ln("快捷键位", 16.0, 62.0, 80.0, 20.0),
+            ln("翻译引擎", 16.0, 88.0, 80.0, 20.0),
+            ln("关于软件", 16.0, 114.0, 80.0, 20.0),
+        ];
+        assert_eq!(
+            formatted(zh_menu),
+            "常规设置\n外观主题\n快捷键位\n翻译引擎\n关于软件"
+        );
+
+        // Equal-width short English menu items.
+        let en_menu = vec![
+            ln("Home", 16.0, 10.0, 44.0, 18.0),
+            ln("Docs", 16.0, 34.0, 44.0, 18.0),
+            ln("Blog", 16.0, 58.0, 44.0, 18.0),
+            ln("Help", 16.0, 82.0, 44.0, 18.0),
+        ];
+        assert_eq!(formatted(en_menu), "Home\nDocs\nBlog\nHelp");
+    }
+
+    #[test]
+    fn two_short_ui_labels_stay_separate_but_wrapped_short_phrase_merges() {
+        let labels = vec![
+            ln("0 watching", 51.0, 10.0, 80.0, 16.0),
+            ln("0 forks", 51.0, 34.0, 49.0, 16.0),
+        ];
+        assert_eq!(formatted(labels), "0 watching\n0 forks");
+
+        let pair = vec![
+            ln("Readme", 51.0, 10.0, 59.0, 16.0),
+            ln("MIT license", 51.0, 34.0, 83.0, 16.0),
+        ];
+        assert_eq!(formatted(pair), "Readme\nMIT license");
+
+        // Second line begins with lowercase: genuine wrapped phrase, so it merges.
+        let wrapped = vec![
+            ln("Select text", 10.0, 10.0, 88.0, 18.0),
+            ln("to translate", 10.0, 32.0, 92.0, 18.0),
+        ];
+        assert_eq!(formatted(wrapped), "Select text to translate");
+    }
+
+    #[test]
+    fn mixed_about_prose_and_sidebar_list_preserves_both_structures() {
+        let v = vec![
+            ln("About", 16.0, 10.0, 48.0, 18.0),
+            ln("Fast Windows screenshot OCR and", 16.0, 34.0, 230.0, 16.0),
+            ln(
+                "translation tool with local PaddleOCR",
+                16.0,
+                54.0,
+                245.0,
+                16.0,
+            ),
+            ln("and multi-engine streaming.", 16.0, 74.0, 178.0, 16.0),
+            ln("Readme", 16.0, 114.0, 59.0, 14.0),
+            ln("MIT license", 16.0, 148.0, 83.0, 14.0),
+            ln("Activity", 16.0, 182.0, 53.0, 14.0),
+            ln("☆ 0 stars", 10.0, 216.0, 69.0, 14.0),
+            ln("0 watching", 16.0, 250.0, 80.0, 14.0),
+            ln("0 forks", 16.0, 284.0, 49.0, 14.0),
+        ];
+        assert_eq!(
+            formatted(v),
+            "About\nFast Windows screenshot OCR and translation tool with local PaddleOCR and multi-engine streaming.\n\nReadme\nMIT license\nActivity\n☆ 0 stars\n0 watching\n0 forks"
+        );
+    }
+
+    #[test]
+    fn multi_paragraph_prose_uses_blank_line_separators() {
+        // Separated by vertical gap.
+        let mut gapped = stack(
+            &["First paragraph line one is", "long enough to wrap around."],
+            10.0,
+            10.0,
+            24.0,
+        );
+        gapped.extend(stack(
+            &[
+                "Second paragraph starts here and",
+                "wraps as well to the next line.",
+            ],
+            10.0,
+            80.0,
+            24.0,
+        ));
+        assert_eq!(
+            formatted(gapped),
+            "First paragraph line one is long enough to wrap around.\n\nSecond paragraph starts here and wraps as well to the next line."
+        );
+
+        // Separated by first-line indent with no extra vertical gap (Chinese typesetting).
+        let indented_zh = vec![
+            ln(
+                "第一段首行缩进了两个汉字宽度，然后写满整行文字，",
+                50.0,
+                10.0,
+                360.0,
+                20.0,
+            ),
+            ln(
+                "第二行回到左边界继续排满整行直到本段结束。",
+                10.0,
+                34.0,
+                400.0,
+                20.0,
+            ),
+            ln(
+                "第二段同样首行缩进两个汉字宽度，紧接在下一行，",
+                50.0,
+                58.0,
+                360.0,
+                20.0,
+            ),
+            ln(
+                "没有任何多余的空行间距，但应该分成两段。",
+                10.0,
+                82.0,
+                380.0,
+                20.0,
+            ),
+        ];
+        assert_eq!(
+            formatted(indented_zh),
+            "第一段首行缩进了两个汉字宽度，然后写满整行文字，第二行回到左边界继续排满整行直到本段结束。\n\n第二段同样首行缩进两个汉字宽度，紧接在下一行，没有任何多余的空行间距，但应该分成两段。"
+        );
+    }
+
+    #[test]
+    fn heading_and_two_columns_use_blank_lines_while_bullets_and_same_row_stay_compact() {
+        // Heading + body paragraph -> \n\n
+        let heading_body = vec![
+            ln("A big heading", 10.0, 10.0, 200.0, 40.0),
+            ln(
+                "small body text under the heading that wraps",
+                10.0,
+                54.0,
+                400.0,
+                20.0,
+            ),
+            ln(
+                "onto a second line of body text here today",
+                10.0,
+                76.0,
+                395.0,
+                20.0,
+            ),
+        ];
+        assert_eq!(
+            formatted(heading_body),
+            "A big heading\n\nsmall body text under the heading that wraps onto a second line of body text here today"
+        );
+
+        // Two-column prose -> \n\n
+        let cols = vec![
+            ln("Fast offline recognition", 15.0, 10.0, 168.0, 22.0),
+            ln("keeps every screenshot on", 15.0, 32.0, 198.0, 22.0),
+            ln("your own computer.", 15.0, 54.0, 150.0, 22.0),
+            ln("Translate with the engine", 324.0, 10.0, 182.0, 22.0),
+            ln("you trust right now.", 323.0, 32.0, 160.0, 22.0),
+        ];
+        assert_eq!(
+            formatted(cols),
+            "Fast offline recognition keeps every screenshot on your own computer.\n\nTranslate with the engine you trust right now."
+        );
+
+        // Wrapped bullet list stays single \n between bullets.
+        let bullets = vec![
+            ln(
+                "• First bullet item that is long enough to wrap",
+                10.0,
+                10.0,
+                350.0,
+                20.0,
+            ),
+            ln(
+                "onto a second line with hanging indent.",
+                28.0,
+                32.0,
+                310.0,
+                20.0,
+            ),
+            ln(
+                "• Second bullet item right below it.",
+                10.0,
+                54.0,
+                280.0,
+                20.0,
+            ),
+        ];
+        assert_eq!(
+            formatted(bullets),
+            "• First bullet item that is long enough to wrap onto a second line with hanging indent.\n• Second bullet item right below it."
+        );
+
+        // Side-by-side buttons stay single \n.
+        let buttons = vec![
+            ln("Cancel", 120.0, 10.0, 50.0, 20.0),
+            ln("OK", 20.0, 11.0, 30.0, 20.0),
+        ];
+        assert_eq!(formatted(buttons), "OK\nCancel");
     }
 
     // ----- language -----

@@ -172,7 +172,13 @@ impl Google {
         from: &str,
         to: &str,
     ) -> std::result::Result<MtOut, Failure> {
-        let mut body = json!({"q": text, "target": to, "format": "text"});
+        let layout = crate::layout::Layout::parse(text);
+        let batch = layout.segments.len() > 1 && layout.segments.len() <= 128;
+        let mut body = if batch {
+            json!({"q": layout.texts(), "target": to, "format": "text"})
+        } else {
+            json!({"q": text, "target": to, "format": "text"})
+        };
         if from != "auto" {
             body["source"] = json!(from);
         }
@@ -183,7 +189,11 @@ impl Google {
             .header("X-goog-api-key", key)
             .json(&body);
         let body = send(rb, Provider::Google).await?.text().await?;
-        Ok(parse_v2(&body)?)
+        if batch {
+            Ok(parse_v2_batch(&body, &layout)?)
+        } else {
+            Ok(parse_v2(&body)?)
+        }
     }
 }
 
@@ -279,6 +289,35 @@ pub(crate) fn parse_v2(body: &str) -> std::result::Result<MtOut, TranslateError>
             .and_then(Value::as_str)
             .map(str::to_owned),
     })
+}
+
+fn parse_v2_batch(
+    body: &str,
+    layout: &crate::layout::Layout,
+) -> std::result::Result<MtOut, TranslateError> {
+    let v: Value = serde_json::from_str(body).map_err(|_| parse_err("the response is not JSON"))?;
+    let arr = v
+        .pointer("/data/translations")
+        .and_then(Value::as_array)
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| parse_err("the response has no translation"))?;
+    let mut parts = Vec::with_capacity(arr.len());
+    for item in arr {
+        let t = item
+            .get("translatedText")
+            .and_then(Value::as_str)
+            .ok_or_else(|| parse_err("the response has no translated text"))?;
+        parts.push(t);
+    }
+    let text = layout
+        .reassemble(&parts)
+        .unwrap_or_else(|| parts.join("\n"));
+    let detected = arr
+        .first()
+        .and_then(|item| item.get("detectedSourceLanguage"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Ok(MtOut { text, detected })
 }
 
 #[cfg(test)]

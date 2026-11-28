@@ -117,24 +117,25 @@ impl<B: Backend> Translator for MtEngine<B> {
     }
 
     async fn translate(&self, req: &TranslateRequest, deltas: DeltaSink) -> Result<String> {
-        let text = req.text.trim();
-        if text.is_empty() {
+        let layout = crate::layout::Layout::parse(&req.text);
+        if layout.is_empty() {
             return Ok(String::new());
         }
-        self.backend.check_len(text)?;
+        let text = layout.source_text();
+        self.backend.check_len(&text)?;
 
         let secondary = req.secondary_lang.as_deref();
         let target = langs::effective_target(&req.source_lang, &req.target_lang, secondary);
         if !langs::is_auto(&req.source_lang) && langs::same_lang(&req.source_lang, &target) {
             // Same language and no secondary to switch to: there is nothing to do.
-            let _ = deltas.send(text.to_string());
-            return Ok(text.to_string());
+            let _ = deltas.send(text.clone());
+            return Ok(text);
         }
         let from = self.backend.lang(&req.source_lang, Role::Source)?;
         let to = self.backend.lang(&target, Role::Target)?;
 
         let out = within(MT_TIMEOUT, async {
-            let mut out = retrying(|| self.backend.call(text, from, to)).await?;
+            let mut out = retrying(|| self.backend.call(&text, from, to)).await?;
 
             // Source "auto" and the text turned out to be in the target language already:
             // translate it into the secondary language instead (one more request, only in
@@ -146,7 +147,7 @@ impl<B: Backend> Translator for MtEngine<B> {
                 ) {
                     if langs::same_engine_lang(detected, to) {
                         let to2 = self.backend.lang(sec, Role::Target)?;
-                        out = retrying(|| self.backend.call(text, from, to2)).await?;
+                        out = retrying(|| self.backend.call(&text, from, to2)).await?;
                     }
                 }
             }
@@ -154,8 +155,9 @@ impl<B: Backend> Translator for MtEngine<B> {
         })
         .await?;
 
-        let _ = deltas.send(out.text.clone());
-        Ok(out.text)
+        let aligned = layout.reconcile(&out.text);
+        let _ = deltas.send(aligned.clone());
+        Ok(aligned)
     }
 }
 

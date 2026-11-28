@@ -119,7 +119,7 @@ render("two_column", None, INTER, 15, (600, 110), (255, 255, 255), (20, 20, 20),
        columns=[(18, left), (326, right)])
 cases["two_column"] = dict(
     lines=left + right,
-    expected=" ".join(left) + "\n" + " ".join(right),
+    expected=" ".join(left) + "\n\n" + " ".join(right),
     lang="en",
 )
 

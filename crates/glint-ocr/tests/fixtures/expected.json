@@ -65,7 +65,7 @@
       "your own API key, or a local",
       "model running on this PC."
     ],
-    "expected": "Fast offline recognition keeps every screenshot on your own computer, with no upload and no account.\nTranslate with the engine you trust: a free web service, your own API key, or a local model running on this PC.",
+    "expected": "Fast offline recognition keeps every screenshot on your own computer, with no upload and no account.\n\nTranslate with the engine you trust: a free web service, your own API key, or a local model running on this PC.",
     "lang": "en"
   }
 }

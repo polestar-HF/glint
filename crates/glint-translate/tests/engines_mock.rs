@@ -1040,3 +1040,179 @@ async fn dropping_translate_all_closes_the_connections() {
     );
     assert_eq!(mock.count(), 1, "and nothing is retried");
 }
+
+// ---- Paragraph and list layout preservation across all engines ----------------------------------
+
+#[tokio::test]
+async fn deepl_batches_multiline_paragraphs_and_lists_in_one_request() {
+    let mock = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"{"translations":[
+                {"detected_source_language":"EN","text":"第一段。"},
+                {"detected_source_language":"EN","text":"自述"},
+                {"detected_source_language":"EN","text":"MIT 许可证"}
+            ]}"#,
+        )
+    })
+    .await;
+    let mut c = cfg("deepl", &mock.base);
+    c.api_key = Some("secret-key:fx".into());
+    let src = "First paragraph.\n\n  Readme\n  MIT license";
+    let (res, deltas) = run(&*engine(&c), &req(src, "auto", "zh-Hans")).await;
+    let expected = "第一段。\n\n  自述\n  MIT 许可证";
+    assert_eq!(res.ok().as_deref(), Some(expected));
+    assert_eq!(deltas, vec![expected.to_string()]);
+    assert_eq!(mock.count(), 1, "single HTTP request");
+    assert_eq!(
+        mock.requests()[0].json()["text"],
+        serde_json::json!(["First paragraph.", "Readme", "MIT license"])
+    );
+}
+
+#[tokio::test]
+async fn google_official_batches_paragraphs_and_free_reconciles_collapsed_blank_lines() {
+    let mock_v2 = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"{"data":{"translations":[
+                {"translatedText":"第一段。","detectedSourceLanguage":"en"},
+                {"translatedText":"第二段。","detectedSourceLanguage":"en"}
+            ]}}"#,
+        )
+    })
+    .await;
+    let mut c = cfg("google", &mock_v2.base);
+    c.api_key = Some("AIza-test".into());
+    let src = "First paragraph.\n\nSecond paragraph.";
+    let (res, _) = run(&*engine(&c), &req(src, "auto", "zh-Hans")).await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+    assert_eq!(mock_v2.count(), 1);
+    assert_eq!(
+        mock_v2.requests()[0].json()["q"],
+        serde_json::json!(["First paragraph.", "Second paragraph."])
+    );
+
+    // Free endpoint that collapsed `\n\n` into `\n` and left spaces around `\n`.
+    let mock_free = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"[[["第一段。 \n","First paragraph.\n\n",null,null,10],[" 第二段。","Second paragraph.",null,null,10]],null,"en"]"#,
+        )
+    })
+    .await;
+    let (res, _) = run(
+        &*engine(&cfg("google", &mock_free.base)),
+        &req(src, "auto", "zh-Hans"),
+    )
+    .await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+}
+
+#[tokio::test]
+async fn bing_azure_batches_paragraphs_and_web_reconciles_blank_lines() {
+    let mock_azure = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"[
+                {"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"自述","to":"zh-Hans"}]},
+                {"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"MIT 许可证","to":"zh-Hans"}]},
+                {"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"活动","to":"zh-Hans"}]}
+            ]"#,
+        )
+    })
+    .await;
+    let mut c = cfg("bing", &mock_azure.base);
+    c.api_key = Some("azure-key".into());
+    let src = "Readme\nMIT license\nActivity";
+    let (res, _) = run(&*engine(&c), &req(src, "auto", "zh-Hans")).await;
+    assert_eq!(res.ok().as_deref(), Some("自述\nMIT 许可证\n活动"));
+    assert_eq!(mock_azure.count(), 1);
+    assert_eq!(
+        mock_azure.requests()[0].json(),
+        serde_json::json!([
+            {"Text": "Readme"},
+            {"Text": "MIT license"},
+            {"Text": "Activity"}
+        ])
+    );
+
+    // Web endpoint returning CRLF with collapsed blank line.
+    let mock_web = Mock::start(|rec, _| {
+        if rec.path() == "/translator" {
+            Reply::text(200, FAKE_BING_HTML_1)
+        } else {
+            Reply::json(
+                200,
+                r#"[{"detectedLanguage":{"language":"en","score":1.0},"translations":[{"text":"第一段。\r\n第二段。","to":"zh-Hans"}]}]"#,
+            )
+        }
+    })
+    .await;
+    let src_para = "First paragraph.\n\nSecond paragraph.";
+    let (res, _) = run(
+        &*engine(&cfg("bing", &mock_web.base)),
+        &req(src_para, "auto", "zh-Hans"),
+    )
+    .await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+}
+
+#[tokio::test]
+async fn baidu_and_youdao_preserve_blank_lines_between_paragraphs() {
+    let mock_baidu = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"{"from":"en","to":"zh","trans_result":[{"src":"First paragraph.","dst":"第一段。"},{"src":"Second paragraph.","dst":"第二段。"}]}"#,
+        )
+    })
+    .await;
+    let mut cb = cfg("baidu", &mock_baidu.base);
+    cb.api_key = Some("app-id".into());
+    cb.api_secret = Some("app-secret".into());
+    let src = "First paragraph.\n\nSecond paragraph.";
+    let (res, _) = run(&*engine(&cb), &req(src, "auto", "zh-Hans")).await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+    // Baidu gets compacted non-empty lines so it cannot silently drop blank lines, and MD5 matches.
+    let rec = &mock_baidu.requests()[0];
+    assert_eq!(rec.form_value("q"), "First paragraph.\nSecond paragraph.");
+    let salt = rec.form_value("salt");
+    let expected_sign = hex(&Md5::digest(
+        format!("app-idFirst paragraph.\nSecond paragraph.{salt}app-secret").as_bytes(),
+    ));
+    assert_eq!(rec.form_value("sign"), expected_sign);
+
+    let mock_youdao = Mock::start(|_, _| {
+        Reply::json(
+            200,
+            r#"{"errorCode":"0","query":"x","translation":["第一段。\n第二段。"],"l":"en2zh-CHS"}"#,
+        )
+    })
+    .await;
+    let mut cy = cfg("youdao", &mock_youdao.base);
+    cy.api_key = Some("my-app-key".into());
+    cy.api_secret = Some("my-app-secret".into());
+    let (res, _) = run(&*engine(&cy), &req(src, "en", "zh-Hans")).await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+}
+
+#[tokio::test]
+async fn llm_engines_reconcile_paragraph_breaks_after_streaming() {
+    let oa_stream = openai_sse(&["第一段。\n", "第二段。"]);
+    let mock_oa = Mock::start(move |_, _| Reply::sse(&[oa_stream.as_str()])).await;
+    let mut co = cfg("openai", &mock_oa.base);
+    co.model = Some("deepseek-chat".into());
+    let src = "First paragraph.\n\nSecond paragraph.";
+    let (res, _) = run(&*engine(&co), &req(src, "auto", "zh-Hans")).await;
+    assert_eq!(res.ok().as_deref(), Some("第一段。\n\n第二段。"));
+
+    let an_stream = anthropic_sse(&["自述\n\n", "MIT 许可证\n\n", "活动"]);
+    let mock_an = Mock::start(move |_, _| Reply::sse(&[an_stream.as_str()])).await;
+    let src_list = "Readme\nMIT license\nActivity";
+    let (res, _) = run(
+        &*engine(&anthropic_cfg(&mock_an.base)),
+        &req(src_list, "auto", "zh-Hans"),
+    )
+    .await;
+    assert_eq!(res.ok().as_deref(), Some("自述\nMIT 许可证\n活动"));
+}

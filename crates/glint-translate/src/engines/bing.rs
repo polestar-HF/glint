@@ -223,6 +223,19 @@ impl Bing {
         from: &str,
         to: &str,
     ) -> std::result::Result<MtOut, Failure> {
+        let layout = crate::layout::Layout::parse(text);
+        let batch = layout.segments.len() > 1 && layout.segments.len() <= 100;
+        let payload = if batch {
+            Value::Array(
+                layout
+                    .texts()
+                    .into_iter()
+                    .map(|t| json!({ "Text": t }))
+                    .collect(),
+            )
+        } else {
+            json!([{ "Text": text }])
+        };
         let mut query = vec![("api-version", "3.0"), ("to", to), ("textType", "plain")];
         if !from.is_empty() {
             query.push(("from", from));
@@ -233,12 +246,17 @@ impl Bing {
             .timeout(MT_TIMEOUT)
             .query(&query)
             .header("Ocp-Apim-Subscription-Key", key)
-            .json(&json!([{ "Text": text }]));
+            .json(&payload);
         if let Some(r) = region {
             rb = rb.header("Ocp-Apim-Subscription-Region", r);
         }
         let resp = send(rb, Provider::Bing).await?;
-        Ok(parse_response(&resp.text().await?)?)
+        let raw = resp.text().await?;
+        if batch {
+            Ok(parse_response_batch(&raw, &layout)?)
+        } else {
+            Ok(parse_response(&raw)?)
+        }
     }
 }
 
@@ -407,6 +425,34 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
             .and_then(Value::as_str)
             .map(str::to_owned),
     })
+}
+
+fn parse_response_batch(
+    body: &str,
+    layout: &crate::layout::Layout,
+) -> std::result::Result<MtOut, TranslateError> {
+    let v: Value = serde_json::from_str(body).map_err(|_| parse_err("the response is not JSON"))?;
+    let arr = v
+        .as_array()
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| parse_err("the response has no translation"))?;
+    let mut parts = Vec::with_capacity(arr.len());
+    for item in arr {
+        let t = item
+            .pointer("/translations/0/text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| parse_err("the response has no translated text"))?;
+        parts.push(t);
+    }
+    let text = layout
+        .reassemble(&parts)
+        .unwrap_or_else(|| parts.join("\n"));
+    let detected = arr
+        .first()
+        .and_then(|item| item.pointer("/detectedLanguage/language"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Ok(MtOut { text, detected })
 }
 
 #[cfg(test)]

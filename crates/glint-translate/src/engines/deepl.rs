@@ -49,7 +49,13 @@ impl Backend for DeepL {
     }
 
     async fn call(&self, text: &str, from: &str, to: &str) -> std::result::Result<MtOut, Failure> {
-        let mut body = json!({"text": [text], "target_lang": to});
+        let layout = crate::layout::Layout::parse(text);
+        let batch = layout.segments.len() > 1 && layout.segments.len() <= 50;
+        let mut body = if batch {
+            json!({"text": layout.texts(), "target_lang": to})
+        } else {
+            json!({"text": [text], "target_lang": to})
+        };
         if !from.is_empty() {
             body["source_lang"] = json!(from);
         }
@@ -63,7 +69,12 @@ impl Backend for DeepL {
             )
             .json(&body);
         let resp = send(rb, Provider::DeepL).await?;
-        Ok(parse_response(&resp.text().await?)?)
+        let raw = resp.text().await?;
+        if batch {
+            Ok(parse_response_batch(&raw, &layout)?)
+        } else {
+            Ok(parse_response(&raw)?)
+        }
     }
 }
 
@@ -84,6 +95,35 @@ pub(crate) fn parse_response(body: &str) -> std::result::Result<MtOut, Translate
             .and_then(Value::as_str)
             .map(str::to_owned),
     })
+}
+
+fn parse_response_batch(
+    body: &str,
+    layout: &crate::layout::Layout,
+) -> std::result::Result<MtOut, TranslateError> {
+    let v: Value = serde_json::from_str(body).map_err(|_| parse_err("the response is not JSON"))?;
+    let arr = v
+        .get("translations")
+        .and_then(Value::as_array)
+        .filter(|a| !a.is_empty())
+        .ok_or_else(|| parse_err("the response has no translation"))?;
+    let mut parts = Vec::with_capacity(arr.len());
+    for item in arr {
+        let t = item
+            .get("text")
+            .and_then(Value::as_str)
+            .ok_or_else(|| parse_err("the response has no translated text"))?;
+        parts.push(t);
+    }
+    let text = layout
+        .reassemble(&parts)
+        .unwrap_or_else(|| parts.join("\n"));
+    let detected = arr
+        .first()
+        .and_then(|item| item.get("detected_source_language"))
+        .and_then(Value::as_str)
+        .map(str::to_owned);
+    Ok(MtOut { text, detected })
 }
 
 #[cfg(test)]
